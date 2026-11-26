@@ -1,0 +1,62 @@
+{
+ "muzzle_fwd": 1.6360000000000001,
+ "gun_fwd": 0.62,
+ "gun_scale": 0.8,
+ "gun_up": 0.7200000286102295,
+ "hinge_fwd": 0.9079999999999999,
+ "open_angle": 0.7,
+ "shoulder": {
+  "x": 0.56,
+  "fwd": 0.0,
+  "up": 0.9
+ },
+ "belt": {
+  "r": 0.66,
+  "up": 0.5
+ },
+ "belt_grab_angle": 1.2217304763960306,
+ "upper": 0.6,
+ "fore": 0.58,
+ "fps": 60,
+ "clips": {
+  "hold": 120,
+  "fire": 18,
+  "reload": 60
+ },
+ "bones": [
+  "root",
+  "upperArmL",
+  "foreArmL",
+  "handL",
+  "index1L",
+  "index2L",
+  "middle1L",
+  "middle2L",
+  "ring1L",
+  "ring2L",
+  "pinky1L",
+  "pinky2L",
+  "thumb1L",
+  "thumb2L",
+  "upperArmR",
+  "foreArmR",
+  "handR",
+  "index1R",
+  "index2R",
+  "middle1R",
+  "middle2R",
+  "ring1R",
+  "ring2R",
+  "pinky1R",
+  "pinky2R",
+  "thumb1R",
+  "thumb2R",
+  "gunRoot",
+  "barrels",
+  "muzzle",
+  "chamberL",
+  "chamberR",
+  "shellA",
+  "shellB"
+ ]
+}

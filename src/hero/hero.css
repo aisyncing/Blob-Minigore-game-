@@ -1,0 +1,63 @@
+:root{
+  --bg:#0c1512; --panel:rgba(20,30,32,.86); --panel2:#1d2a2e; --line:#2c3d42; --ink:#e9f1ee; --dim:#9bb0b0;
+  --pink:#ff6fb1; --gold:#ffd23f; --green:#7be08a; --blue:#6cc4ff;
+  --font:'Fredoka','Trebuchet MS',system-ui,sans-serif; --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;overflow:hidden;user-select:none}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none;cursor:crosshair}
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,rgba(20,30,60,0) 45%,rgba(6,10,26,.62) 100%)}
+.pill{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 12px;font-weight:600}
+#top{position:fixed;left:max(14px,env(safe-area-inset-left,0px));top:max(12px,env(safe-area-inset-top,0px));display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:calc(100% - 330px)}
+#top h1{margin:0;font-size:18px;margin-right:4px} #top h1 small{color:var(--dim);font-weight:500;font-size:12px;margin-left:6px}
+.chip.ok{border-color:var(--green);color:var(--green)}
+button{font:inherit;font-weight:600;font-size:12px;border:1px solid var(--line);border-radius:10px;padding:7px 11px;background:var(--panel2);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--pink)} button.primary{background:var(--pink);color:#2a0f1d;border-color:var(--pink)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+#cards{position:fixed;left:50%;bottom:max(14px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;gap:10px;max-width:calc(100% - 340px)}
+.card{width:230px;text-align:left;padding:10px 12px;border-radius:14px;background:var(--panel);border:2px solid var(--line);cursor:pointer;color:var(--ink)}
+.card b{display:flex;gap:8px;align-items:center;font-size:15px} .card b i{font-style:normal;background:var(--ink);color:#122;border-radius:6px;padding:0 6px;font-size:11px}
+.card small{display:block;color:var(--dim);font-weight:500;margin-top:4px;line-height:1.35;font-size:12px}
+.card.sel{border-color:var(--pink);box-shadow:0 0 0 3px rgba(255,111,177,.25)}
+#hint{position:fixed;left:max(14px,env(safe-area-inset-left,0px));bottom:max(14px,env(safe-area-inset-bottom,0px));max-width:300px;font-size:12px;line-height:1.5;color:var(--dim);pointer-events:none}
+#hint b{background:var(--ink);color:#122;border-radius:5px;padding:0 5px;font-size:11px;margin-right:2px}
+#panel{position:fixed;right:max(12px,env(safe-area-inset-right,0px));top:max(12px,env(safe-area-inset-top,0px));bottom:12px;width:300px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
+#panel.collapsed{display:none}
+#panelBtn{position:fixed;right:max(12px,env(safe-area-inset-right,0px));top:max(12px,env(safe-area-inset-top,0px));z-index:5;display:none}
+#panel.collapsed ~ #panelBtn{display:block}
+h2{margin:12px 0 4px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)} h2:first-child{margin-top:0}
+.row{display:grid;grid-template-columns:1fr 78px 44px;gap:8px;align-items:center;margin:4px 0;font-size:12px}
+.row .v{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--pink)}
+.actions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.stat,.diag{font-family:var(--mono);font-size:11px;line-height:1.7;color:var(--dim);font-variant-numeric:tabular-nums} .stat b,.diag b{color:var(--ink);font-weight:600}
+details{margin-top:8px} summary{cursor:pointer;font-size:12px;color:var(--dim);font-weight:600}
+label.chk{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--dim);margin-top:6px}
+textarea{width:100%;height:90px;margin-top:8px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:11px;padding:6px}
+#focus{position:fixed;inset:0;display:grid;place-items:center;background:rgba(8,12,18,.55);cursor:pointer;transition:opacity .2s}
+#focus.off{opacity:0;pointer-events:none}
+#focus div{background:#fff3d6;color:#1d1530;padding:20px 30px;border-radius:20px;text-align:center;box-shadow:0 8px 0 var(--pink);max-width:380px}
+#focus h1{margin:0 0 4px;font-size:30px} #focus p{margin:4px 0;font-size:14px;font-weight:500}
+@media (max-width:900px){ #panel{display:none} #panel:not(.collapsed){display:block;width:min(300px,calc(100% - 24px))} #top,#cards{max-width:calc(100% - 28px)} .card{width:150px} .card small{display:none} #hint{display:none} }
+#ammo{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+#shells{display:flex;gap:6px}
+#shells i{display:block;width:14px;height:34px;border-radius:5px 5px 3px 3px;background:rgba(255,255,255,.12);border:2px solid #d9a441;position:relative}
+#shells i.on{background:linear-gradient(#e85d5d 0 65%,#d9a441 65%)}
+#reloadBar{width:104px;height:7px;border-radius:4px;background:rgba(20,30,32,.8);overflow:hidden;opacity:0;transition:opacity .1s}
+#ammo.reloading #reloadBar{opacity:1}
+#reloadBar i{display:block;height:100%;width:0;background:var(--gold)}
+select{font:inherit;font-size:12px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:4px}
+details.grp summary,#panel details summary{padding:4px 0}
+#panel details .row{padding-left:6px}
+.note{font-size:12px;line-height:1.45;color:var(--ink);background:rgba(255,210,63,.12);border:1px solid rgba(255,210,63,.4);border-radius:10px;padding:8px 10px;margin-bottom:8px}
+summary em{font-style:normal;font-weight:500;font-size:11px;opacity:.6}
+body.mode-compare #hint{top:max(58px,calc(env(safe-area-inset-top,0px) + 50px));bottom:auto;max-width:360px}
+@media (max-width:640px){
+  #top h1 small{display:none}
+  #panelBtn{top:auto;bottom:max(14px,env(safe-area-inset-bottom,0px));right:max(12px,env(safe-area-inset-right,0px))}
+  #ammo{bottom:max(60px,env(safe-area-inset-bottom,0px))}
+  #cards{bottom:max(14px,env(safe-area-inset-bottom,0px));left:12px;right:84px;transform:none;max-width:none;gap:6px}
+  .card{width:auto;flex:1;padding:8px 6px}
+  .card b{font-size:12px;gap:4px}
+}

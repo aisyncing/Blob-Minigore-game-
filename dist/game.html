@@ -1,0 +1,940 @@
+<title>Blob Shooter Lab</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap">
+<style>:root{
+  --bg:#0e1517; --panel:#172124; --panel2:#1d2a2e; --line:#2c3d42; --ink:#e9f1ee; --dim:#8fa5a6;
+  --pink:#ff6fb1; --gold:#ffd23f; --green:#7be08a; --red:#ff6b6b; --blue:#6cc4ff;
+  --font:'Fredoka','Trebuchet MS',system-ui,sans-serif; --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;
+  padding:14px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px))}
+header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:12px}
+h1{margin:0;font-size:22px;letter-spacing:.02em}
+h1 small{font-weight:500;color:var(--dim);font-size:13px;margin-left:8px}
+h2{margin:0 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.chip{padding:5px 12px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-weight:600}
+.chip.ok{border-color:var(--green);color:var(--green)} .chip.warn{border-color:var(--gold);color:var(--gold)} .chip.bad{border-color:var(--red);color:var(--red)}
+.grid{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr) minmax(260px,330px);gap:12px;align-items:start}
+@media (max-width:1050px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.sticks{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stick{display:flex;flex-direction:column;align-items:center;gap:4px}
+.stick canvas{width:100%;max-width:150px;aspect-ratio:1;display:block}
+.num{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center;font-variant-numeric:tabular-nums;line-height:1.5}
+.num b{color:var(--ink);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--dim);margin-top:8px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.trig{display:grid;grid-template-columns:24px 1fr 38px;gap:6px;align-items:center;margin-top:8px;font-size:12px}
+.bar{height:12px;background:var(--panel2);border-radius:6px;position:relative;overflow:hidden}
+.bar>b{position:absolute;left:0;top:0;bottom:0;background:var(--blue)} .bar.down>b{background:var(--pink)}
+.bar>u{position:absolute;top:0;bottom:0;width:2px;background:var(--gold)} .bar>s{position:absolute;top:0;bottom:0;width:2px;background:var(--dim)}
+.btns{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:10px}
+.btn{font-size:10px;text-align:center;padding:5px 0;border-radius:6px;background:var(--panel2);color:var(--dim);border:1px solid transparent}
+.btn.on{background:var(--pink);color:#2a0f1d;font-weight:700}
+.arena-wrap{padding:8px}
+#arena{width:100%;aspect-ratio:5/3;display:block;border-radius:10px;background:#101b1b}
+.hint{color:var(--dim);font-size:12px;margin:6px 4px 0;line-height:1.45}
+.row{display:grid;grid-template-columns:1fr 84px 46px;gap:8px;align-items:center;margin:5px 0;font-size:12px}
+.row span.v{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--pink)}
+.actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+button{font:inherit;font-weight:600;font-size:12px;border:1px solid var(--line);border-radius:10px;padding:7px 11px;background:var(--panel2);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--pink)} button.primary{background:var(--pink);color:#2a0f1d;border-color:var(--pink)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.diag{font-family:var(--mono);font-size:11px;line-height:1.7;color:var(--dim);font-variant-numeric:tabular-nums}
+.diag b{color:var(--ink);font-weight:600} .diag .good{color:var(--green)} .diag .badv{color:var(--red)} .diag .warnv{color:var(--gold)}
+#spark{width:100%;height:46px;display:block;margin-top:6px}
+.curve canvas{width:100%;aspect-ratio:2/1;display:block}
+textarea{width:100%;height:96px;margin-top:8px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:11px;padding:6px}
+label.chk{display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px;color:var(--dim)}
+
+#arena{cursor:crosshair;touch-action:none}
+</style>
+<div id="app"></div>
+<script type="module">// src/input/process.js
+var clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+var num = (v) => Number.isFinite(v) ? v : 0;
+function shapeStick(x, y, { inner = 0.15, outer = 0.95, curve = 1 } = {}) {
+  x = num(x);
+  y = num(y);
+  const raw = Math.hypot(x, y);
+  if (raw <= inner || raw === 0) return { x: 0, y: 0, mag: 0, raw };
+  const hi = Math.max(outer, inner + 1e-3);
+  const t = clamp((raw - inner) / (hi - inner), 0, 1);
+  const mag = Math.pow(t, Math.max(0.05, curve));
+  return { x: x / raw * mag, y: y / raw * mag, mag, raw };
+}
+function curveAt(rawMag, cfg) {
+  return shapeStick(rawMag, 0, cfg).mag;
+}
+function makeTrigger({ press = 0.5, release = 0.35 } = {}) {
+  let down = false;
+  return {
+    update(v, cfg) {
+      const p = cfg?.press ?? press, r = Math.min(cfg?.release ?? release, p);
+      v = num(v);
+      if (!down && v >= p) down = true;
+      else if (down && v <= r) down = false;
+      return down;
+    },
+    get down() {
+      return down;
+    },
+    reset() {
+      down = false;
+    }
+  };
+}
+function analyseRest(samples) {
+  let max = 0, sx = 0, sy = 0;
+  for (const s of samples) {
+    max = Math.max(max, Math.hypot(num(s.x), num(s.y)));
+    sx += num(s.x);
+    sy += num(s.y);
+  }
+  const n = Math.max(1, samples.length);
+  const suggested = clamp(Math.ceil((max * 1.3 + 0.01) * 100) / 100, 0.05, 0.4);
+  return { max, meanX: sx / n, meanY: sy / n, suggested, count: samples.length };
+}
+function digitalAxes({ left = false, right = false, up = false, down = false } = {}) {
+  const x = (right ? 1 : 0) - (left ? 1 : 0), y = (down ? 1 : 0) - (up ? 1 : 0);
+  const m = Math.hypot(x, y);
+  return m ? { x: x / m, y: y / m, mag: 1 } : { x: 0, y: 0, mag: 0 };
+}
+function mouseAim(player, cursor, lastAim = { x: 1, y: 0 }, minDist = 0.6) {
+  const dx = num(cursor.x) - num(player.x), dy = num(cursor.y) - num(player.y), d = Math.hypot(dx, dy);
+  if (d < minDist) {
+    const m = Math.hypot(lastAim.x, lastAim.y) || 1;
+    return { x: lastAim.x / m, y: lastAim.y / m, mag: 1, dist: d };
+  }
+  return { x: dx / d, y: dy / d, mag: 1, dist: d };
+}
+
+// src/input/pad.js
+var STANDARD = { lx: 0, ly: 1, rx: 2, ry: 3, lt: 6, rt: 7 };
+var BUTTON_NAMES = ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "Back", "Start", "L3", "R3", "Up", "Down", "Left", "Right", "Home"];
+function createPadReader(getPads = () => typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : []) {
+  let activeIndex = -1;
+  let lastStamp = -1, stampCount = 0, stampWindowStart = 0, updateHz = 0;
+  let apiError = null, everSeen = false;
+  function isActive(p) {
+    return p.buttons.some((b) => b.pressed) || p.axes.some((a) => Math.abs(a) > 0.6);
+  }
+  function poll(now = performance.now()) {
+    let pads = [];
+    try {
+      pads = Array.from(getPads() || []).filter((p) => p && p.connected);
+      apiError = null;
+    } catch (e) {
+      apiError = e?.name || String(e);
+    }
+    const out = { connected: false, count: pads.length, apiError, everSeen };
+    if (!pads.length) {
+      activeIndex = -1;
+      return out;
+    }
+    everSeen = out.everSeen = true;
+    let pad2 = pads.find((p) => p.index === activeIndex);
+    for (const p of pads) if (isActive(p) && (!pad2 || p.index !== pad2.index)) {
+      pad2 = p;
+    }
+    pad2 = pad2 || pads[0];
+    activeIndex = pad2.index;
+    if (pad2.timestamp !== lastStamp) {
+      lastStamp = pad2.timestamp;
+      stampCount++;
+    }
+    if (now - stampWindowStart >= 1e3) {
+      updateHz = stampCount * 1e3 / Math.max(1, now - stampWindowStart);
+      stampCount = 0;
+      stampWindowStart = now;
+    }
+    const ax = (i) => pad2.axes[i] ?? 0;
+    const bv = (i) => pad2.buttons[i]?.value ?? 0;
+    const standard = pad2.mapping === "standard";
+    return Object.assign(out, {
+      connected: true,
+      id: pad2.id,
+      index: pad2.index,
+      mapping: pad2.mapping || "unknown",
+      standard,
+      left: { x: ax(STANDARD.lx), y: ax(STANDARD.ly) },
+      right: { x: ax(STANDARD.rx), y: ax(STANDARD.ry) },
+      lt: bv(STANDARD.lt),
+      rt: bv(STANDARD.rt),
+      buttons: pad2.buttons.map((b) => ({ pressed: b.pressed, value: b.value })),
+      axes: Array.from(pad2.axes),
+      updateHz,
+      rumble(strong = 0.8, weak = 0.4, ms = 250) {
+        const act = pad2.vibrationActuator || pad2.hapticActuators?.[0];
+        if (!act) return Promise.resolve("unsupported");
+        try {
+          if (act.playEffect) return act.playEffect("dual-rumble", { startDelay: 0, duration: ms, weakMagnitude: weak, strongMagnitude: strong }).then(() => "ok", () => "failed");
+          if (act.pulse) return act.pulse(strong, ms).then(() => "ok", () => "failed");
+        } catch {
+        }
+        return Promise.resolve("unsupported");
+      }
+    });
+  }
+  return { poll };
+}
+
+// src/input/source.js
+var GAME_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "KeyW", "KeyA", "KeyS", "KeyD"];
+function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 }), tuning: tuning2, getPads }) {
+  const pads = createPadReader(getPads);
+  const keys2 = /* @__PURE__ */ new Set();
+  const mouse2 = { x: 0, y: 0, inside: false, down: false, moved: -1e9 };
+  let keyAt = -1e9;
+  const trig = makeTrigger();
+  const snap = {
+    source: "none",
+    mouseAim: false,
+    leftRaw: { x: 0, y: 0 },
+    rightRaw: { x: 0, y: 0 },
+    move: { x: 0, y: 0, mag: 0 },
+    aim: { x: 0, y: 0, mag: 0 },
+    lt: 0,
+    rt: 0,
+    fire: false,
+    buttons: [],
+    pad: { connected: false }
+  };
+  addEventListener("keydown", (e) => {
+    const typing = document.activeElement && ["INPUT", "TEXTAREA", "BUTTON", "SELECT"].includes(document.activeElement.tagName);
+    if (GAME_KEYS.includes(e.code) && !typing) e.preventDefault();
+    keys2.add(e.code);
+    keyAt = performance.now();
+  });
+  addEventListener("click", (e) => {
+    if (["BUTTON", "SUMMARY"].includes(e.target?.tagName)) e.target.blur();
+  });
+  addEventListener("change", (e) => {
+    if (e.target?.matches?.("input[type=range],input[type=checkbox],select")) e.target.blur();
+  });
+  addEventListener("pointerup", (e) => {
+    const t = document.activeElement;
+    if (t && t.matches?.("input[type=range]")) t.blur();
+  });
+  addEventListener("keyup", (e) => keys2.delete(e.code));
+  addEventListener("blur", () => {
+    keys2.clear();
+    mouse2.down = false;
+  });
+  if (target) {
+    const at = (e) => {
+      const w = toWorld(e);
+      if (w) {
+        mouse2.x = w.x;
+        mouse2.y = w.y;
+      }
+      mouse2.moved = performance.now();
+    };
+    target.addEventListener("pointermove", (e) => {
+      at(e);
+      mouse2.inside = true;
+    });
+    target.addEventListener("pointerenter", () => {
+      mouse2.inside = true;
+    });
+    target.addEventListener("pointerleave", () => {
+      if (!mouse2.down) mouse2.inside = false;
+    });
+    target.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      at(e);
+      mouse2.down = true;
+      target.setPointerCapture?.(e.pointerId);
+      keyAt = performance.now();
+    });
+    const up = () => {
+      mouse2.down = false;
+    };
+    target.addEventListener("pointerup", up);
+    target.addEventListener("pointercancel", up);
+    target.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+  function sample(now = performance.now()) {
+    const p = pads.poll(now);
+    const mv = digitalAxes({ left: keys2.has("KeyA"), right: keys2.has("KeyD"), up: keys2.has("KeyW"), down: keys2.has("KeyS") });
+    const arrows = digitalAxes({ left: keys2.has("ArrowLeft"), right: keys2.has("ArrowRight"), up: keys2.has("ArrowUp"), down: keys2.has("ArrowDown") });
+    const mouseOn = mouse2.inside || mouse2.down;
+    const kbActive = mv.mag || arrows.mag || keys2.has("Space") || mouse2.down || mouseOn && now - mouse2.moved < 4e3;
+    let L = { x: 0, y: 0 }, R = { x: 0, y: 0 }, rt = 0, lt = 0;
+    snap.buttons = [];
+    snap.mouseAim = false;
+    snap.pad = p;
+    snap.source = p.connected ? "controller" : "none";
+    if (p.connected) {
+      L = p.left;
+      R = p.right;
+      rt = p.rt;
+      lt = p.lt;
+      snap.buttons = p.buttons;
+    }
+    const padIdle = Math.hypot(L.x, L.y) < 0.05 && Math.hypot(R.x, R.y) < 0.05 && rt < 0.05;
+    if (kbActive && (!p.connected || padIdle)) {
+      L = mv;
+      snap.source = "keyboard";
+      if (mouseOn && origin) {
+        R = mouseAim(origin(), mouse2, lastAim());
+        snap.mouseAim = true;
+      } else R = arrows;
+      rt = keys2.has("Space") || mouse2.down ? 1 : rt;
+    }
+    snap.leftRaw = L;
+    snap.rightRaw = R;
+    snap.lt = lt;
+    snap.rt = rt;
+    const m = shapeStick(L.x, L.y, tuning2.stick("left"));
+    snap.move.x = m.x;
+    snap.move.y = m.y;
+    snap.move.mag = m.mag;
+    snap.move.raw = m.raw;
+    const a = snap.mouseAim ? { x: R.x, y: R.y, mag: 1, raw: 1 } : shapeStick(R.x, R.y, tuning2.stick("right"));
+    snap.aim.x = a.x;
+    snap.aim.y = a.y;
+    snap.aim.mag = a.mag;
+    snap.aim.raw = a.raw;
+    snap.fire = trig.update(rt, tuning2.trigger());
+    return snap;
+  }
+  return { sample, snap, keys: keys2, mouse: mouse2, kbMouseIdleMs: (now) => now - Math.max(keyAt, mouse2.moved) };
+}
+
+// src/tuning.js
+var DEFS = [
+  { key: "left.inner", group: "Left stick (move)", label: "Inner deadzone", min: 0, max: 0.4, step: 5e-3, def: 0.12 },
+  { key: "left.outer", group: "Left stick (move)", label: "Outer deadzone", min: 0.6, max: 1, step: 5e-3, def: 0.95 },
+  { key: "left.curve", group: "Left stick (move)", label: "Response curve", min: 0.5, max: 3, step: 0.05, def: 1 },
+  { key: "right.inner", group: "Right stick (aim)", label: "Inner deadzone", min: 0, max: 0.4, step: 5e-3, def: 0.1 },
+  { key: "right.outer", group: "Right stick (aim)", label: "Outer deadzone", min: 0.6, max: 1, step: 5e-3, def: 0.95 },
+  { key: "right.curve", group: "Right stick (aim)", label: "Response curve", min: 0.5, max: 3, step: 0.05, def: 1 },
+  { key: "trigger.press", group: "Fire trigger", label: "Press at", min: 0.05, max: 0.95, step: 0.01, def: 0.5 },
+  { key: "trigger.release", group: "Fire trigger", label: "Release at", min: 0.02, max: 0.9, step: 0.01, def: 0.35 },
+  // ---- hero scene (Iteration 1) ----
+  { key: "move.maxSpeed", page: "hero", group: "Movement", label: "Top speed (u/s)", min: 3, max: 14, step: 0.1, def: 7.5 },
+  { key: "move.accel", page: "hero", group: "Movement", label: "Acceleration", min: 10, max: 220, step: 1, def: 70 },
+  { key: "move.brake", page: "hero", group: "Movement", label: "Braking", min: 10, max: 220, step: 1, def: 60 },
+  { key: "move.turnAccel", page: "hero", group: "Movement", label: "Turn / reverse", min: 10, max: 260, step: 1, def: 110 },
+  { key: "aim.follow", page: "hero", group: "Body", label: "Upper body turn speed", min: 6, max: 60, step: 1, def: 26 },
+  { key: "legs.follow", page: "hero", group: "Body", label: "Leg turn speed", min: 4, max: 40, step: 1, def: 16 },
+  { key: "anim.squash", page: "hero", group: "Body", label: "Squash and stretch", min: 0, max: 2, step: 0.05, def: 1 },
+  { key: "anim.lean", page: "hero", group: "Body", label: "Lean into motion", min: 0, max: 2, step: 0.05, def: 1 },
+  { key: "anim.bob", page: "hero", group: "Body", label: "Step bob", min: 0, max: 2, step: 0.05, def: 1 },
+  { key: "anim.stepLen", page: "hero", group: "Body", label: "Step length (units)", min: 0.8, max: 2.4, step: 0.05, def: 1.3 },
+  { key: "cam.dist", page: "hero", group: "Camera", label: "Distance", min: 12, max: 38, step: 0.5, def: 24 },
+  { key: "cam.tilt", page: "hero", group: "Camera", label: "Tilt (degrees)", min: 35, max: 80, step: 1, def: 58 },
+  { key: "cam.follow", page: "hero", group: "Camera", label: "Follow speed", min: 2, max: 14, step: 0.5, def: 6 },
+  { key: "cam.velLead", page: "hero", group: "Camera", label: "Lead with movement", min: 0, max: 0.5, step: 0.01, def: 0.16 },
+  { key: "cam.aimLead", page: "hero", group: "Camera", label: "Lead with aim (units)", min: 0, max: 6, step: 0.1, def: 2.4 },
+  // ---- shotgun and aiming (Iteration 2) ----
+  { key: "gun.pellets", page: "hero", group: "Shotgun", label: "Pellets per blast", min: 1, max: 20, step: 1, def: 9 },
+  { key: "gun.spread", page: "hero", group: "Shotgun", label: "Spread (degrees)", min: 0.5, max: 25, step: 0.5, def: 8 },
+  { key: "gun.bias", page: "hero", group: "Shotgun", label: "Centre bias", min: 0, max: 1, step: 0.05, def: 0.25 },
+  { key: "gun.damage", page: "hero", group: "Shotgun", label: "Damage per pellet", min: 2, max: 40, step: 1, def: 12 },
+  { key: "gun.range", page: "hero", group: "Shotgun", label: "Range (units)", min: 6, max: 30, step: 0.5, def: 15 },
+  { key: "gun.falloffStart", page: "hero", group: "Shotgun", label: "Full damage until", min: 1, max: 12, step: 0.25, def: 3.5 },
+  { key: "gun.minDamage", page: "hero", group: "Shotgun", label: "Damage at max range", min: 0, max: 1, step: 0.05, def: 0.25 },
+  { key: "gun.pelletSpeed", page: "hero", group: "Shotgun", label: "Pellet speed (u/s)", min: 20, max: 120, step: 1, def: 55 },
+  { key: "gun.interval", page: "hero", group: "Shotgun", label: "Time between barrels", min: 0.1, max: 0.8, step: 0.01, def: 0.28 },
+  { key: "gun.reload", page: "hero", group: "Shotgun", label: "Reload time (s)", min: 0.3, max: 2.5, step: 0.05, def: 0.95 },
+  { key: "gun.capacity", page: "hero", group: "Shotgun", label: "Shells (double barrel = 2)", min: 1, max: 2, step: 1, def: 2 },
+  { key: "gun.recoil", page: "hero", group: "Shotgun", label: "Recoil shove (u/s)", min: 0, max: 9, step: 0.1, def: 4 },
+  { key: "assist.mode", page: "hero", group: "Aim", label: "Aim help (stick / arrows)", kind: "select", options: ["Manual", "Assist", "Auto-aim"], min: 0, max: 2, step: 1, def: 1 },
+  { key: "assist.cone", page: "hero", group: "Aim", label: "Assist cone (degrees)", min: 0, max: 20, step: 0.5, def: 8 },
+  { key: "assist.strength", page: "hero", group: "Aim", label: "Assist strength", min: 0, max: 1, step: 0.05, def: 0.5 },
+  { key: "fx.camKick", page: "hero", group: "Feedback", label: "Camera kick", min: 0, max: 1.5, step: 0.05, def: 0.35 },
+  { key: "fx.hitPause", page: "hero", group: "Feedback", label: "Hit pause on kills (s)", min: 0, max: 0.12, step: 5e-3, def: 0.03 },
+  { key: "fx.volume", page: "hero", group: "Feedback", label: "Volume", min: 0, max: 1, step: 0.05, def: 0.6 },
+  { key: "fx.rumble", page: "hero", group: "Feedback", label: "Controller rumble", kind: "toggle", min: 0, max: 1, step: 1, def: 1 },
+  { key: "fx.numbers", page: "hero", group: "Feedback", label: "Damage numbers", kind: "toggle", min: 0, max: 1, step: 1, def: 1 },
+  { key: "pad.speed", page: "lab", group: "Feel pad", label: "Top speed (units/s)", min: 2, max: 16, step: 0.1, def: 8 }
+];
+var STORE = "blobshooter.tuning.v1";
+var listeners = /* @__PURE__ */ new Set();
+var values = {};
+for (const d of DEFS) values[d.key] = d.def;
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
+  for (const d of DEFS) if (typeof saved[d.key] === "number") values[d.key] = Math.min(d.max, Math.max(d.min, saved[d.key]));
+} catch {
+}
+function persist() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(values));
+  } catch {
+  }
+}
+var tuning = {
+  get: (k) => values[k],
+  set(k, v) {
+    values[k] = v;
+    persist();
+    listeners.forEach((f) => f(k, v));
+  },
+  reset() {
+    for (const d of DEFS) values[d.key] = d.def;
+    persist();
+    listeners.forEach((f) => f(null));
+  },
+  onChange: (f) => {
+    listeners.add(f);
+    return () => listeners.delete(f);
+  },
+  snapshot: () => ({ ...values }),
+  apply(obj) {
+    for (const [k, v] of Object.entries(obj)) if (k in values) values[k] = v;
+    persist();
+    listeners.forEach((f) => f(null));
+  },
+  stick: (side) => ({ inner: values[side + ".inner"], outer: values[side + ".outer"], curve: values[side + ".curve"] }),
+  trigger: () => ({ press: values["trigger.press"], release: values["trigger.release"] })
+};
+
+// src/lab/main.js
+var SIM_STEP = 1 / 120;
+var $ = (s, r = document) => r.querySelector(s);
+var fmt = (v, d = 2) => Number.isFinite(v) ? v.toFixed(d) : "-";
+var LAB_DEFS = DEFS.filter((d) => d.page !== "hero");
+var groups = [...new Set(LAB_DEFS.map((d) => d.group))];
+$("#app").innerHTML = `
+<header>
+  <h1>Controller Lab<small>Iteration 0 \xB7 input feel</small></h1>
+  <span class="chip" id="chipSrc">Looking for a controller</span>
+  <span class="chip" id="chipId" hidden></span>
+</header>
+<div class="grid">
+  <div class="col">
+    <section class="panel">
+      <h2>Sticks</h2>
+      <div class="sticks">
+        <div class="stick"><canvas id="cvL"></canvas><div class="num" id="nL"></div></div>
+        <div class="stick"><canvas id="cvR"></canvas><div class="num" id="nR"></div></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:#8fa5a6"></i>raw</span><span><i style="background:#ff6fb1"></i>after shaping</span>
+        <span><i style="background:#ff6b6b55"></i>inner deadzone</span><span><i style="background:#ffd23f"></i>outer</span>
+      </div>
+      <div class="trig" id="tLT"><span>LT</span><div class="bar"><b></b></div><span class="num"></span></div>
+      <div class="trig" id="tRT"><span>RT</span><div class="bar"><b></b><u></u><s></s></div><span class="num"></span></div>
+      <div class="btns" id="btns"></div>
+    </section>
+    <section class="panel curve">
+      <h2>Response curves</h2>
+      <canvas id="cvCurve"></canvas>
+      <div class="hint">Horizontal: how far you push. Vertical: what the game sees. Dots show where each stick is now.</div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel arena-wrap">
+      <canvas id="arena"></canvas>
+      <div class="hint" id="arenaHint"></div>
+    </section>
+    <section class="panel">
+      <h2>Checks for you</h2>
+      <div class="hint" style="margin:0">
+        1. Leave both sticks alone: the pink dots must sit dead centre and the blob must not drift.<br>
+        2. Push a stick very gently: you should get slow, fine movement, not a sudden jump.<br>
+        3. Push fully and circle the rim: speed should be the same all the way round.<br>
+        4. Flick the stick back to centre: the blob should stop right away.<br>
+        5. Squeeze RT slowly: it should fire once at the gold marker and stop at the grey one.<br>
+        6. Press <b>Rumble test</b>: you should feel it (Chrome and Edge only).<br><br>
+        <b>No controller yet?</b> Use WASD to move, aim with the mouse and hold left click to fire. Checks 1 to 6 and the deadzone and curve sliders only apply to a controller. Keyboard and mouse input is digital (no gentle pushes) by nature, and mouse aim ignores deadzones.
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" id="tunePanel">
+      <h2>Tuning</h2>
+      <div id="sliders"></div>
+      <div class="actions">
+        <button id="bDrift" class="primary">Measure drift</button>
+        <button id="bRumble">Rumble test</button>
+        <button id="bReset">Reset</button>
+        <button id="bCopy">Copy my settings</button>
+      </div>
+      <div class="hint" id="driftOut"></div>
+      <label class="chk"><input type="checkbox" id="rumbleFire"> Rumble while firing</label>
+      <textarea id="copyBox" readonly hidden></textarea>
+    </section>
+    <section class="panel">
+      <h2>Diagnostics</h2>
+      <div class="diag" id="diag"></div>
+      <canvas id="spark"></canvas>
+    </section>
+  </div>
+</div>`;
+var sliderEls = {};
+{
+  const host = $("#sliders");
+  for (const g of groups) {
+    const h = document.createElement("div");
+    h.className = "hint";
+    h.style.cssText = "margin:10px 0 2px;color:var(--ink);font-weight:600";
+    h.textContent = g;
+    host.appendChild(h);
+    for (const d of LAB_DEFS.filter((x) => x.group === g)) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<span>${d.label}</span><input type="range" id="s_${d.key}" min="${d.min}" max="${d.max}" step="${d.step}"><span class="v"></span>`;
+      host.appendChild(row);
+      const input2 = $("input", row), val = $(".v", row);
+      const sync = () => {
+        input2.value = tuning.get(d.key);
+        val.textContent = fmt(tuning.get(d.key), d.step < 0.01 ? 3 : 2);
+      };
+      input2.addEventListener("input", () => {
+        tuning.set(d.key, parseFloat(input2.value));
+        sync();
+      });
+      sliderEls[d.key] = sync;
+      sync();
+    }
+  }
+  tuning.onChange((k) => {
+    if (k === null) Object.values(sliderEls).forEach((f) => f());
+    else sliderEls[k]?.();
+  });
+}
+$("#bReset").onclick = () => tuning.reset();
+$("#bCopy").onclick = async () => {
+  const text = JSON.stringify({ controller: lastPad?.id || "keyboard", tuning: tuning.snapshot() }, null, 1);
+  const box = $("#copyBox");
+  box.hidden = false;
+  box.value = text;
+  box.select();
+  try {
+    await navigator.clipboard.writeText(text);
+    $("#bCopy").textContent = "Copied!";
+  } catch {
+    $("#bCopy").textContent = "Select and copy below";
+  }
+  setTimeout(() => $("#bCopy").textContent = "Copy my settings", 2e3);
+};
+var lastPad = null;
+var input = createInput({
+  target: $("#arena"),
+  toWorld: (e) => arenaWorld(e),
+  origin: () => pad,
+  lastAim: () => ({ x: pad.aimX, y: pad.aimY }),
+  tuning
+});
+var keys = input.keys;
+var mouse = input.mouse;
+var I = {
+  get source() {
+    return input.snap.source;
+  },
+  get mouseAim() {
+    return input.snap.mouseAim;
+  },
+  get leftRaw() {
+    return input.snap.leftRaw;
+  },
+  get rightRaw() {
+    return input.snap.rightRaw;
+  },
+  get left() {
+    return input.snap.move;
+  },
+  get right() {
+    return input.snap.aim;
+  },
+  get lt() {
+    return input.snap.lt;
+  },
+  get rt() {
+    return input.snap.rt;
+  },
+  get fire() {
+    return input.snap.fire;
+  },
+  get buttons() {
+    return input.snap.buttons;
+  }
+};
+function sampleInput(now) {
+  const snap = input.sample(now);
+  const p = snap.pad;
+  lastPad = p.connected ? p : null;
+  return p;
+}
+var drift = null;
+$("#bDrift").onclick = () => {
+  drift = { left: [], right: [], until: performance.now() + 1500 };
+  $("#driftOut").textContent = "Sampling for 1.5 s. Do not touch the sticks.";
+};
+function stepDrift(now) {
+  if (!drift) return;
+  drift.left.push({ ...I.leftRaw });
+  drift.right.push({ ...I.rightRaw });
+  if (now < drift.until) return;
+  const l = analyseRest(drift.left), r = analyseRest(drift.right);
+  drift = null;
+  const out = $("#driftOut");
+  out.innerHTML = `Rest drift: left <b>${fmt(l.max, 3)}</b>, right <b>${fmt(r.max, 3)}</b>. Suggested inner deadzone: left <b>${fmt(l.suggested)}</b>, right <b>${fmt(r.suggested)}</b>. `;
+  const apply = document.createElement("button");
+  apply.textContent = "Apply";
+  apply.className = "primary";
+  apply.onclick = () => {
+    tuning.set("left.inner", l.suggested);
+    tuning.set("right.inner", r.suggested);
+    apply.remove();
+  };
+  out.appendChild(apply);
+}
+var rumbleBusy = 0;
+$("#bRumble").onclick = async () => {
+  if (!lastPad || !lastPad.rumble) {
+    $("#driftOut").textContent = "No controller connected. Press a button on it first.";
+    return;
+  }
+  const r = await lastPad.rumble(0.9, 0.5, 400);
+  $("#driftOut").textContent = r === "ok" ? "Rumble sent. Did you feel it?" : r === "unsupported" ? "This browser or controller does not report rumble support. Try Chrome or Edge." : "The controller refused the rumble request.";
+};
+function fit(canvas) {
+  const dpr = Math.min(devicePixelRatio || 1, 2), r = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const g = canvas.getContext("2d");
+  g.setTransform(canvas.width / r.width, 0, 0, canvas.height / r.height, 0, 0);
+  return { g, w: r.width, h: r.height };
+}
+function drawStick(canvas, raw, shaped, cfg) {
+  const { g, w, h } = fit(canvas), c = w / 2, R = w / 2 - 6;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = "#101b1b";
+  g.beginPath();
+  g.arc(c, c, R, 0, 7);
+  g.fill();
+  g.fillStyle = "rgba(255,107,107,.30)";
+  g.beginPath();
+  g.arc(c, c, R * cfg.inner, 0, 7);
+  g.fill();
+  g.strokeStyle = "#2c3d42";
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(c - R, c);
+  g.lineTo(c + R, c);
+  g.moveTo(c, c - R);
+  g.lineTo(c, c + R);
+  g.stroke();
+  g.strokeStyle = "#2c3d42";
+  g.beginPath();
+  g.arc(c, c, R, 0, 7);
+  g.stroke();
+  g.strokeStyle = "#ffd23f";
+  g.setLineDash([4, 4]);
+  g.beginPath();
+  g.arc(c, c, R * cfg.outer, 0, 7);
+  g.stroke();
+  g.setLineDash([]);
+  g.strokeStyle = "#8fa5a6";
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(c + raw.x * R, c + raw.y * R, 6, 0, 7);
+  g.stroke();
+  g.fillStyle = "#ff6fb1";
+  g.beginPath();
+  g.arc(c + shaped.x * R, c + shaped.y * R, 5, 0, 7);
+  g.fill();
+}
+function drawCurves() {
+  const { g, w, h } = fit($("#cvCurve")), pad2 = 22, pw = w - pad2 - 8, ph = h - pad2 - 8;
+  g.clearRect(0, 0, w, h);
+  const X = (v) => pad2 + v * pw, Y = (v) => 8 + (1 - v) * ph;
+  g.strokeStyle = "#2c3d42";
+  g.lineWidth = 1;
+  g.strokeRect(X(0), Y(1), pw, ph);
+  g.beginPath();
+  g.moveTo(X(0), Y(0));
+  g.lineTo(X(1), Y(1));
+  g.setLineDash([3, 4]);
+  g.stroke();
+  g.setLineDash([]);
+  for (const [side, col, raw] of [["left", "#6cc4ff", I.left.raw], ["right", "#ff6fb1", I.right.raw]]) {
+    const cfg = tuning.stick(side);
+    g.strokeStyle = col;
+    g.lineWidth = 2;
+    g.beginPath();
+    for (let i = 0; i <= 80; i++) {
+      const x = i / 80, y = curveAt(x, cfg);
+      i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y));
+    }
+    g.stroke();
+    g.fillStyle = col;
+    g.beginPath();
+    g.arc(X(clamp(raw, 0, 1)), Y(curveAt(clamp(raw, 0, 1), cfg)), 4, 0, 7);
+    g.fill();
+  }
+  g.fillStyle = "#8fa5a6";
+  g.font = "10px ui-monospace,monospace";
+  g.fillText("push", X(0.46), h - 6);
+  g.save();
+  g.translate(10, Y(0.35));
+  g.rotate(-Math.PI / 2);
+  g.fillText("output", 0, 0);
+  g.restore();
+  g.fillStyle = "#6cc4ff";
+  g.fillText("left", X(0.78), Y(0.2));
+  g.fillStyle = "#ff6fb1";
+  g.fillText("right", X(0.78), Y(0.1));
+}
+var ARENA = { w: 40, h: 24 };
+var pad = { x: 0, y: 0, aimX: 1, aimY: 0, shots: [], trail: [], fireT: 0, speed: 0 };
+var arenaEl = $("#arena");
+function arenaWorld(e) {
+  const r = arenaEl.getBoundingClientRect(), sc = Math.min(r.width / ARENA.w, r.height / ARENA.h);
+  return { x: (e.clientX - r.left - r.width / 2) / sc, y: (e.clientY - r.top - r.height / 2) / sc };
+}
+function simStep(dt) {
+  const sp = tuning.get("pad.speed");
+  pad.x = clamp(pad.x + I.left.x * sp * dt, -ARENA.w / 2 + 1, ARENA.w / 2 - 1);
+  pad.y = clamp(pad.y + I.left.y * sp * dt, -ARENA.h / 2 + 1, ARENA.h / 2 - 1);
+  pad.speed = I.left.mag * sp;
+  if (I.mouseAim) {
+    const a = mouseAim({ x: pad.x, y: pad.y }, mouse, { x: pad.aimX, y: pad.aimY });
+    pad.aimX = a.x;
+    pad.aimY = a.y;
+  } else if (I.right.mag > 0.02) {
+    pad.aimX = I.right.x / I.right.mag;
+    pad.aimY = I.right.y / I.right.mag;
+  } else if (I.left.mag > 0.2) {
+    pad.aimX = I.left.x / I.left.mag;
+    pad.aimY = I.left.y / I.left.mag;
+  }
+  pad.fireT -= dt;
+  if (I.fire && pad.fireT <= 0) {
+    pad.fireT = 0.14;
+    pad.shots.push({ x: pad.x, y: pad.y, ax: pad.aimX, ay: pad.aimY, age: 0 });
+    if ($("#rumbleFire").checked && lastPad?.rumble && performance.now() - rumbleBusy > 120) {
+      rumbleBusy = performance.now();
+      lastPad.rumble(0.35, 0.6, 60);
+    }
+  }
+  for (const s of pad.shots) s.age += dt;
+  pad.shots = pad.shots.filter((s) => s.age < 0.18);
+  if (frameCount % 3 === 0) {
+    pad.trail.push({ x: pad.x, y: pad.y });
+    if (pad.trail.length > 36) pad.trail.shift();
+  }
+}
+function drawArena() {
+  const { g, w, h } = fit($("#arena"));
+  const s = Math.min(w / ARENA.w, h / ARENA.h), ox = w / 2, oy = h / 2;
+  const X = (v) => ox + v * s, Y = (v) => oy + v * s;
+  const grad = g.createRadialGradient(ox, oy, 10, ox, oy, w * 0.6);
+  grad.addColorStop(0, "#1b2b2a");
+  grad.addColorStop(1, "#0e1717");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = "rgba(180,210,200,.07)";
+  g.lineWidth = 1;
+  g.beginPath();
+  for (let x = -ARENA.w / 2; x <= ARENA.w / 2; x += 2) {
+    g.moveTo(X(x), Y(-ARENA.h / 2));
+    g.lineTo(X(x), Y(ARENA.h / 2));
+  }
+  for (let y = -ARENA.h / 2; y <= ARENA.h / 2; y += 2) {
+    g.moveTo(X(-ARENA.w / 2), Y(y));
+    g.lineTo(X(ARENA.w / 2), Y(y));
+  }
+  g.stroke();
+  g.strokeStyle = "#3b5a52";
+  g.lineWidth = 3;
+  g.strokeRect(X(-ARENA.w / 2), Y(-ARENA.h / 2), ARENA.w * s, ARENA.h * s);
+  g.fillStyle = "rgba(255,111,177,.35)";
+  pad.trail.forEach((t, i) => {
+    g.globalAlpha = i / pad.trail.length * 0.5;
+    g.beginPath();
+    g.arc(X(t.x), Y(t.y), s * 0.5 * (i / pad.trail.length), 0, 7);
+    g.fill();
+  });
+  g.globalAlpha = 1;
+  g.strokeStyle = "rgba(255,210,63,.55)";
+  g.lineWidth = 2;
+  g.setLineDash([6, 6]);
+  g.beginPath();
+  g.moveTo(X(pad.x), Y(pad.y));
+  g.lineTo(X(pad.x + pad.aimX * 9), Y(pad.y + pad.aimY * 9));
+  g.stroke();
+  g.setLineDash([]);
+  for (const sh of pad.shots) {
+    const k = 1 - sh.age / 0.18;
+    g.strokeStyle = `rgba(255,236,160,${k})`;
+    g.lineWidth = 6 * k + 1;
+    g.beginPath();
+    g.moveTo(X(sh.x + sh.ax * 0.9), Y(sh.y + sh.ay * 0.9));
+    g.lineTo(X(sh.x + sh.ax * (3 + 6 * (1 - k))), Y(sh.y + sh.ay * (3 + 6 * (1 - k))));
+    g.stroke();
+  }
+  if (I.mouseAim) {
+    const cx = X(mouse.x), cy = Y(mouse.y);
+    g.strokeStyle = I.fire ? "#ff6fb1" : "#ffd23f";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(cx, cy, 9, 0, 7);
+    g.moveTo(cx - 15, cy);
+    g.lineTo(cx - 5, cy);
+    g.moveTo(cx + 5, cy);
+    g.lineTo(cx + 15, cy);
+    g.moveTo(cx, cy - 15);
+    g.lineTo(cx, cy - 5);
+    g.moveTo(cx, cy + 5);
+    g.lineTo(cx, cy + 15);
+    g.stroke();
+  }
+  const r = s * 0.7;
+  g.fillStyle = "rgba(0,0,0,.35)";
+  g.beginPath();
+  g.ellipse(X(pad.x), Y(pad.y) + r * 0.7, r * 0.95, r * 0.4, 0, 0, 7);
+  g.fill();
+  g.fillStyle = "#ff6fb1";
+  g.beginPath();
+  g.arc(X(pad.x), Y(pad.y), r, 0, 7);
+  g.fill();
+  g.strokeStyle = "#2a1a24";
+  g.lineWidth = 3;
+  g.lineCap = "round";
+  g.beginPath();
+  g.moveTo(X(pad.x) + pad.aimX * r * 0.6, Y(pad.y) + pad.aimY * r * 0.6);
+  g.lineTo(X(pad.x) + pad.aimX * r * 1.5, Y(pad.y) + pad.aimY * r * 1.5);
+  g.stroke();
+  for (const sx of [-1, 1]) {
+    const ex = X(pad.x) + pad.aimX * r * 0.35 - pad.aimY * sx * r * 0.3, ey = Y(pad.y) + pad.aimY * r * 0.35 + pad.aimX * sx * r * 0.3;
+    g.fillStyle = "#fff";
+    g.beginPath();
+    g.arc(ex, ey, r * 0.2, 0, 7);
+    g.fill();
+    g.fillStyle = "#241838";
+    g.beginPath();
+    g.arc(ex + pad.aimX * r * 0.07, ey + pad.aimY * r * 0.07, r * 0.1, 0, 7);
+    g.fill();
+  }
+  g.fillStyle = "#8fa5a6";
+  g.font = "11px ui-monospace,monospace";
+  g.fillText(`speed ${fmt(pad.speed)} u/s`, 10, h - 10);
+}
+var ft = [];
+var frameCount = 0;
+var stepsLast = 0;
+var longFrames = 0;
+var framedBy = false;
+try {
+  framedBy = window.self !== window.top;
+} catch {
+  framedBy = true;
+}
+function drawSpark() {
+  const { g, w, h } = fit($("#spark"));
+  g.clearRect(0, 0, w, h);
+  const y = (ms) => h - Math.min(1, ms / 40) * h;
+  g.strokeStyle = "#2c3d42";
+  g.beginPath();
+  g.moveTo(0, y(16.7));
+  g.lineTo(w, y(16.7));
+  g.stroke();
+  g.strokeStyle = "#6cc4ff";
+  g.lineWidth = 1.5;
+  g.beginPath();
+  ft.forEach((v, i) => {
+    const x = i / Math.max(1, 239) * w;
+    i ? g.lineTo(x, y(v)) : g.moveTo(x, y(v));
+  });
+  g.stroke();
+}
+function updateDiag(p) {
+  const sorted = ft.slice().sort((a, b) => a - b), avg = ft.reduce((a, b) => a + b, 0) / Math.max(1, ft.length);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0, max = sorted[sorted.length - 1] || 0;
+  const api = p.apiError ? `<span class="badv">blocked (${p.apiError})</span>` : '<span class="good">ok</span>';
+  const mapLine = !p.connected ? "-" : p.standard ? '<span class="good">standard</span>' : `<span class="warnv">${p.mapping} (non-standard, buttons may differ)</span>`;
+  $("#diag").innerHTML = `frame <b>${fmt(avg, 1)}</b> ms avg \xB7 p95 <b>${fmt(p95, 1)}</b> \xB7 max <b>${fmt(max, 1)}</b><br>fps <b>${fmt(1e3 / Math.max(0.1, avg), 0)}</b> \xB7 long frames (&gt;25 ms) <b>${longFrames}</b><br>sim <b>${Math.round(1 / SIM_STEP)} Hz</b> fixed \xB7 steps this frame <b>${stepsLast}</b><br>gamepad api ${api} \xB7 pads <b>${p.count || 0}</b> \xB7 mapping ${mapLine}<br>pad updates <b>${p.connected ? fmt(p.updateHz, 0) : "-"}</b> Hz \xB7 input source <b>${I.source === "keyboard" ? I.mouseAim ? "keyboard + mouse" : "keyboard" : I.source}</b><br>in a frame <b>${framedBy ? "yes" : "no"}</b>` + (framedBy && !p.connected && p.everSeen === false ? ' <span class="warnv">(if your controller never shows, the frame may block it; see README)</span>' : "");
+}
+function updateChips(p) {
+  const c = $("#chipSrc"), id = $("#chipId");
+  if (p.connected) {
+    c.className = "chip ok";
+    c.textContent = "Controller connected";
+    id.hidden = false;
+    id.className = "chip";
+    id.textContent = p.id.replace(/\s*\(.*\)\s*$/, "").slice(0, 44);
+  } else if (I.source === "keyboard" && input.kbMouseIdleMs(performance.now()) < 4e3) {
+    c.className = "chip warn";
+    c.textContent = "Keyboard + mouse";
+    id.hidden = true;
+  } else if (p.apiError) {
+    c.className = "chip bad";
+    c.textContent = "Controller access blocked";
+    id.hidden = true;
+  } else {
+    c.className = "chip warn";
+    c.textContent = "Press any button on your controller";
+    id.hidden = true;
+  }
+}
+function updateHud(p) {
+  const L = I.left, R = I.right;
+  $("#nL").innerHTML = `L raw <b>${fmt(I.leftRaw.x)}, ${fmt(I.leftRaw.y)}</b><br>mag <b>${fmt(L.raw)}</b> \u2192 <b>${fmt(L.mag)}</b>`;
+  $("#nR").innerHTML = `R raw <b>${fmt(I.rightRaw.x)}, ${fmt(I.rightRaw.y)}</b><br>mag <b>${fmt(R.raw)}</b> \u2192 <b>${fmt(R.mag)}</b>`;
+  const t = tuning.trigger();
+  const lt = $("#tLT"), rt = $("#tRT");
+  $(".bar>b", lt).style.width = I.lt * 100 + "%";
+  $(".num", lt).textContent = fmt(I.lt);
+  $(".bar>b", rt).style.width = I.rt * 100 + "%";
+  $(".num", rt).textContent = fmt(I.rt);
+  $(".bar>u", rt).style.left = t.press * 100 + "%";
+  $(".bar>s", rt).style.left = t.release * 100 + "%";
+  rt.querySelector(".bar").classList.toggle("down", I.fire);
+  const host = $("#btns");
+  if (!host.children.length) BUTTON_NAMES.forEach((n) => {
+    const d = document.createElement("div");
+    d.className = "btn";
+    d.textContent = n;
+    host.appendChild(d);
+  });
+  [...host.children].forEach((el, i) => el.classList.toggle("on", !!I.buttons[i]?.pressed));
+  $("#arenaHint").innerHTML = p.connected ? "Left stick moves the blob directly (no acceleration yet, so you are judging the stick alone). Right stick aims. RT fires." : "No controller needed yet: WASD moves, the mouse aims, hold left click (or Space) to fire. Arrow keys aim when the mouse is outside this box. Press a controller button any time to switch.";
+}
+var last = performance.now();
+var acc = 0;
+function frame(now) {
+  const dtMs = Math.max(0, now - last);
+  last = now;
+  if (dtMs > 0) {
+    ft.push(dtMs);
+    if (ft.length > 240) ft.shift();
+  }
+  if (dtMs > 25) longFrames++;
+  acc += Math.min(0.1, dtMs / 1e3);
+  const p = sampleInput(now);
+  stepDrift(now);
+  stepsLast = 0;
+  while (acc >= SIM_STEP) {
+    simStep(SIM_STEP);
+    acc -= SIM_STEP;
+    stepsLast++;
+    frameCount++;
+  }
+  drawStick($("#cvL"), I.leftRaw, I.left, tuning.stick("left"));
+  drawStick($("#cvR"), I.rightRaw, I.right, tuning.stick("right"));
+  drawCurves();
+  drawArena();
+  drawSpark();
+  updateHud(p);
+  updateChips(p);
+  if (frameCount % 6 === 0 || stepsLast === 0) updateDiag(p);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__lab = { I, pad, tuning, simStep, state: () => ({ source: I.source, fire: I.fire }) };
+</script>
