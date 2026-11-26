@@ -2,6 +2,11 @@
 // button eyes, and a health bar. Reacts to hits procedurally: squash, tilt away from the shot, white flash.
 import * as THREE from 'three';
 import { toon, paintCanvas, R2 } from '../engine/stage.js';
+import { stepSpring } from '../engine/spring.js';
+
+const _s = { x: 0, v: 0 };
+/** Advance o[pos] / o[vel] as a damped spring toward 0 (or toward `target`), stable at any frame rate. */
+const spring = (o, pos, vel, k, c, dt, target = 0) => { _s.x = o[pos]; _s.v = o[vel]; stepSpring(_s, k, c, target, dt); o[pos] = _s.x; o[vel] = _s.v; };
 
 const burlap = paintCanvas(256, 256, (g, w, h) => {
   g.fillStyle = '#c9a66b'; g.fillRect(0, 0, w, h);
@@ -47,10 +52,10 @@ export class DummyView {
     const tg = this.t; this.group.visible = tg.alive || this.group.visible && false; 
     if (!tg.alive) return;
     this.group.position.set(tg.x, 0, tg.y);
-    for (const ax of ['x', 'z']) { const v = 'v' + ax; this.tilt[v] += (140 * (0 - this.tilt[ax]) - 7 * this.tilt[v]) * dt; this.tilt[ax] += this.tilt[v] * dt; }
-    this.sqv += (200 * (0 - this.sq) - 9 * this.sqv) * dt; this.sq += this.sqv * dt;
-    // spawn pop with overshoot
-    this.popV += (260 * (1 - this.pop) - 14 * this.popV) * dt; this.pop += this.popV * dt;
+    for (const ax of ['x', 'z']) spring(this.tilt, ax, 'v' + ax, 140, 7, dt);
+    spring(this, 'sq', 'sqv', 200, 9, dt);
+    // spawn pop with a little overshoot; the size is clamped so a respawn can never flash huge or vanish
+    spring(this, 'pop', 'popV', 260, 14, dt, 1); this.pop = Math.min(1.35, Math.max(0, this.pop));
     const walk = tg.path ? Math.sin(t * 9 + tg.s) * 0.04 * (tg.speed / 3) : 0;           // patrollers waddle
     this.pivot.rotation.set(this.tilt.x, 0, this.tilt.z + walk * 2); this.pivot.position.y = 0.28 + Math.abs(walk);
     this.pivot.scale.set(1 - this.sq * 0.5, 1 + this.sq, 1 - this.sq * 0.5); this.group.scale.setScalar(Math.max(0.01, this.pop));

@@ -113,7 +113,7 @@ export function createArena(stage) {
     g.fillStyle = '#e85d5d'; g.font = '700 30px Fredoka, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PATTERN BOARD', 256, 22);
     const face = new THREE.Mesh(new THREE.PlaneGeometry(rb.hw * 2 - 0.2, 0.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
     face.position.set(rb.x, rb.height - 0.4, rb.y + rb.hh + 0.012); group.add(face); }
-  const marks = Array.from({ length: 140 }, () => { const m = new THREE.Mesh(new THREE.CircleGeometry(0.055, 8), new THREE.MeshBasicMaterial({ color: '#2a1b0e' })); m.visible = false; group.add(m); return m; });
+  const marks = Array.from({ length: 140 }, () => { const m = new THREE.Mesh(new THREE.CircleGeometry(0.055, 8), new THREE.MeshBasicMaterial({ color: '#2a1b0e' })); m.visible = false; m.userData.mark = true; group.add(m); return m; });
   let markI = 0;
   /** Stamp a pellet hole where a pellet hit the board (x along the board; height is random since the sim is 2D). */
   function boardMark(x) { const m = marks[markI++ % marks.length]; m.position.set(x, 0.25 + Math.random() * (rb.height - 0.95), rb.y + rb.hh + 0.015); m.visible = true; }

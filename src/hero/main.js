@@ -311,7 +311,16 @@ function updateStats() {
 }
 updateStats();
 $('#bReset').onclick = () => tuning.reset();
-$('#bRange').onclick = () => { arena.clearMarks(); for (const t of targets) { t.hp = t.maxHp; t.alive = true; t.deadFor = 0; views.get(t).respawn(); } stats.shots = stats.pellets = stats.hits = stats.damage = stats.kills = 0; stats.last = null; };
+// Reset range: everything that belongs to the range session goes together. In-flight pellets must go too, or they would land after the
+// reset and put hits, damage and kills back into a session that just said zero.
+function resetRange() {
+  pellets.clear(); pauseT = 0;
+  arena.clearMarks();
+  for (const t of targets) { t.hp = t.maxHp; t.alive = true; t.deadFor = 0; t.dmgAcc = 0; t.dmgT = 0; t.dmgKill = false; t.sndT = 0; views.get(t).respawn(); }
+  stats.shots = stats.pellets = stats.hits = stats.damage = stats.kills = 0; stats.recent.clear(); stats.last = null;
+  updateDiag();
+}
+$('#bRange').onclick = resetRange;
 $('#bCopy').onclick = async () => {
   const text = JSON.stringify({ design: heroes[selected].d.name, tuning: tuning.snapshot() }, null, 1); const box = $('#copyBox'); box.hidden = false; box.value = text; box.select();
   try { await navigator.clipboard.writeText(text); $('#bCopy').textContent = 'Copied!'; } catch { $('#bCopy').textContent = 'Select and copy below'; } setTimeout(() => ($('#bCopy').textContent = 'Copy my settings'), 2000);
@@ -410,4 +419,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };
+window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };
