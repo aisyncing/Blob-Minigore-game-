@@ -70,11 +70,16 @@ function shapeStick(x, y, { inner = 0.15, outer = 0.95, curve = 1 } = {}) {
 function curveAt(rawMag, cfg) {
   return shapeStick(rawMag, 0, cfg).mag;
 }
-function makeTrigger({ press = 0.5, release = 0.35 } = {}) {
+var TRIGGER_GAP = 0.02;
+function effectiveTrigger({ press = 0.5, release = 0.35 } = {}) {
+  const p = clamp(num(press), 0.05, 1);
+  return { press: p, release: clamp(num(release), 0, p - TRIGGER_GAP) };
+}
+function makeTrigger(defaults = {}) {
   let down = false;
   return {
     update(v, cfg) {
-      const p = cfg?.press ?? press, r = Math.min(cfg?.release ?? release, p);
+      const { press: p, release: r } = effectiveTrigger({ ...defaults, ...cfg || {} });
       v = num(v);
       if (!down && v >= p) down = true;
       else if (down && v <= r) down = false;
@@ -111,6 +116,33 @@ function mouseAim(player, cursor, lastAim = { x: 1, y: 0 }, minDist = 0.6) {
     return { x: lastAim.x / m, y: lastAim.y / m, mag: 1, dist: d };
   }
   return { x: dx / d, y: dy / d, mag: 1, dist: d };
+}
+function createDriftSession(pad2, now, ms = 1500) {
+  const s = { state: "sampling", reason: null, result: null, id: pad2?.id, index: pad2?.index, until: now + ms, left: [], right: [] };
+  const same = (p) => !!p && p.connected === true && p.id === s.id && p.index === s.index;
+  const cancel = (r) => {
+    s.state = "cancelled";
+    s.reason = r;
+    return s.state;
+  };
+  if (!pad2 || !pad2.connected) cancel("No controller connected. Press a button on it first.");
+  return Object.assign(s, {
+    push(t, p) {
+      if (s.state !== "sampling") return s.state;
+      if (!p || !p.connected) return cancel("The controller disconnected, so the measurement was cancelled.");
+      if (!same(p)) return cancel("A different controller appeared, so the measurement was cancelled.");
+      s.left.push({ x: p.left.x, y: p.left.y });
+      s.right.push({ x: p.right.x, y: p.right.y });
+      if (t >= s.until) {
+        s.result = { left: analyseRest(s.left), right: analyseRest(s.right) };
+        s.state = "done";
+      }
+      return s.state;
+    },
+    canApply(p) {
+      return s.state === "done" && same(p);
+    }
+  });
 }
 
 // src/input/pad.js
@@ -190,7 +222,9 @@ function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 })
   const keys2 = /* @__PURE__ */ new Set();
   const mouse2 = { x: 0, y: 0, inside: false, down: false, moved: -1e9 };
   let keyAt = -1e9;
+  let tapLatch = false;
   const trig = makeTrigger();
+  let heldFire = false;
   const snap = {
     source: "none",
     mouseAim: false,
@@ -207,6 +241,7 @@ function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 })
   addEventListener("keydown", (e) => {
     const typing = document.activeElement && ["INPUT", "TEXTAREA", "BUTTON", "SELECT"].includes(document.activeElement.tagName);
     if (GAME_KEYS.includes(e.code) && !typing) e.preventDefault();
+    if (e.code === "Space" && !e.repeat) tapLatch = true;
     keys2.add(e.code);
     keyAt = performance.now();
   });
@@ -224,6 +259,7 @@ function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 })
   addEventListener("blur", () => {
     keys2.clear();
     mouse2.down = false;
+    tapLatch = false;
   });
   if (target) {
     const at = (e) => {
@@ -248,6 +284,7 @@ function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 })
       if (e.button !== 0) return;
       at(e);
       mouse2.down = true;
+      tapLatch = true;
       target.setPointerCapture?.(e.pointerId);
       keyAt = performance.now();
     });
@@ -263,7 +300,8 @@ function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 })
     const mv = digitalAxes({ left: keys2.has("KeyA"), right: keys2.has("KeyD"), up: keys2.has("KeyW"), down: keys2.has("KeyS") });
     const arrows = digitalAxes({ left: keys2.has("ArrowLeft"), right: keys2.has("ArrowRight"), up: keys2.has("ArrowUp"), down: keys2.has("ArrowDown") });
     const mouseOn = mouse2.inside || mouse2.down;
-    const kbActive = mv.mag || arrows.mag || keys2.has("Space") || mouse2.down || mouseOn && now - mouse2.moved < 4e3;
+    const tap = tapLatch;
+    const kbActive = mv.mag || arrows.mag || keys2.has("Space") || mouse2.down || tap || mouseOn && now - mouse2.moved < 4e3;
     let L = { x: 0, y: 0 }, R = { x: 0, y: 0 }, rt = 0, lt = 0;
     snap.buttons = [];
     snap.mouseAim = false;
@@ -276,7 +314,8 @@ function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 })
       lt = p.lt;
       snap.buttons = p.buttons;
     }
-    const padIdle = Math.hypot(L.x, L.y) < 0.05 && Math.hypot(R.x, R.y) < 0.05 && rt < 0.05;
+    const trigCfg = tuning2.trigger(), eff = effectiveTrigger(trigCfg);
+    const padIdle = !p.connected || shapeStick(L.x, L.y, tuning2.stick("left")).mag === 0 && shapeStick(R.x, R.y, tuning2.stick("right")).mag === 0 && rt < eff.release;
     if (kbActive && (!p.connected || padIdle)) {
       L = mv;
       snap.source = "keyboard";
@@ -300,10 +339,17 @@ function createInput({ target, toWorld, origin, lastAim = () => ({ x: 1, y: 0 })
     snap.aim.y = a.y;
     snap.aim.mag = a.mag;
     snap.aim.raw = a.raw;
-    snap.fire = trig.update(rt, tuning2.trigger());
+    heldFire = trig.update(rt, trigCfg);
+    snap.fire = heldFire || tap && snap.source === "keyboard";
     return snap;
   }
-  return { sample, snap, keys: keys2, mouse: mouse2, kbMouseIdleMs: (now) => now - Math.max(keyAt, mouse2.moved) };
+  function consumeTap() {
+    if (!tapLatch) return false;
+    tapLatch = false;
+    snap.fire = heldFire;
+    return true;
+  }
+  return { sample, snap, keys: keys2, mouse: mouse2, consumeTap, kbMouseIdleMs: (now) => now - Math.max(keyAt, mouse2.moved) };
 }
 
 // src/tuning.js
@@ -393,7 +439,8 @@ var tuning = {
     listeners.forEach((f) => f(null));
   },
   stick: (side) => ({ inner: values[side + ".inner"], outer: values[side + ".outer"], curve: values[side + ".curve"] }),
-  trigger: () => ({ press: values["trigger.press"], release: values["trigger.release"] })
+  trigger: () => effectiveTrigger({ press: values["trigger.press"], release: values["trigger.release"] })
+  // what the game really uses (release is always below press)
 };
 
 // src/lab/main.js
@@ -422,6 +469,7 @@ $("#app").innerHTML = `
       </div>
       <div class="trig" id="tLT"><span>LT</span><div class="bar"><b></b></div><span class="num"></span></div>
       <div class="trig" id="tRT"><span>RT</span><div class="bar"><b></b><u></u><s></s></div><span class="num"></span></div>
+      <div class="hint" id="trigEff"></div>
       <div class="btns" id="btns"></div>
     </section>
     <section class="panel curve">
@@ -568,22 +616,30 @@ function sampleInput(now) {
 }
 var drift = null;
 $("#bDrift").onclick = () => {
-  drift = { left: [], right: [], until: performance.now() + 1500 };
-  $("#driftOut").textContent = "Sampling for 1.5 s. Do not touch the sticks.";
+  drift = createDriftSession(lastPad || { connected: false }, performance.now(), 1500);
+  $("#driftOut").textContent = drift.state === "cancelled" ? drift.reason : "Sampling this controller for 1.5 s. Do not touch its sticks.";
+  if (drift.state === "cancelled") drift = null;
 };
-function stepDrift(now) {
+function stepDrift(now, pad2) {
   if (!drift) return;
-  drift.left.push({ ...I.leftRaw });
-  drift.right.push({ ...I.rightRaw });
-  if (now < drift.until) return;
-  const l = analyseRest(drift.left), r = analyseRest(drift.right);
+  const st = drift.push(now, pad2), out = $("#driftOut");
+  if (st === "cancelled") {
+    out.textContent = drift.reason;
+    drift = null;
+    return;
+  }
+  if (st !== "done") return;
+  const session = drift, { left: l, right: r } = session.result;
   drift = null;
-  const out = $("#driftOut");
   out.innerHTML = `Rest drift: left <b>${fmt(l.max, 3)}</b>, right <b>${fmt(r.max, 3)}</b>. Suggested inner deadzone: left <b>${fmt(l.suggested)}</b>, right <b>${fmt(r.suggested)}</b>. `;
   const apply = document.createElement("button");
   apply.textContent = "Apply";
   apply.className = "primary";
   apply.onclick = () => {
+    if (!session.canApply(lastPad || { connected: false })) {
+      out.textContent = "That controller is no longer connected, so nothing was applied. Measure again.";
+      return;
+    }
     tuning.set("left.inner", l.suggested);
     tuning.set("right.inner", r.suggested);
     apply.remove();
@@ -895,6 +951,10 @@ function updateHud(p) {
   $(".bar>u", rt).style.left = t.press * 100 + "%";
   $(".bar>s", rt).style.left = t.release * 100 + "%";
   rt.querySelector(".bar").classList.toggle("down", I.fire);
+  {
+    const cfg = { press: tuning.get("trigger.press"), release: tuning.get("trigger.release") }, same = Math.abs(cfg.release - t.release) < 1e-9 && Math.abs(cfg.press - t.press) < 1e-9;
+    $("#trigEff").innerHTML = `In use: presses at <b>${fmt(t.press)}</b>, releases at <b>${fmt(t.release)}</b>` + (same ? "" : ` <em>(your sliders say ${fmt(cfg.press)} / ${fmt(cfg.release)}; release is always kept just below press)</em>`);
+  }
   const host = $("#btns");
   if (!host.children.length) BUTTON_NAMES.forEach((n) => {
     const d = document.createElement("div");
@@ -917,7 +977,7 @@ function frame(now) {
   if (dtMs > 25) longFrames++;
   acc += Math.min(0.1, dtMs / 1e3);
   const p = sampleInput(now);
-  stepDrift(now);
+  stepDrift(now, p);
   stepsLast = 0;
   while (acc >= SIM_STEP) {
     simStep(SIM_STEP);
@@ -925,6 +985,7 @@ function frame(now) {
     stepsLast++;
     frameCount++;
   }
+  if (stepsLast > 0) input.consumeTap();
   drawStick($("#cvL"), I.leftRaw, I.left, tuning.stick("left"));
   drawStick($("#cvR"), I.rightRaw, I.right, tuning.stick("right"));
   drawCurves();

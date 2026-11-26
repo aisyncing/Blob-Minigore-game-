@@ -26,14 +26,24 @@ export function curveAt(rawMag, cfg) {
 }
 
 /**
- * Trigger with hysteresis: goes down at >= press, comes up at <= release.
+ * The thresholds the game actually uses. Release is always kept strictly below press (by at least MIN_GAP), because with
+ * equal thresholds a trigger held exactly there would flip every frame. The lab shows these, not the raw slider values.
+ */
+export const TRIGGER_GAP = 0.02;
+export function effectiveTrigger({ press = 0.5, release = 0.35 } = {}) {
+  const p = clamp(num(press), 0.05, 1);
+  return { press: p, release: clamp(num(release), 0, p - TRIGGER_GAP) };
+}
+
+/**
+ * Trigger with hysteresis: goes down at >= press, comes up at <= release (after effectiveTrigger).
  * Two thresholds stop a trigger hovering near one value from flickering.
  */
-export function makeTrigger({ press = 0.5, release = 0.35 } = {}) {
+export function makeTrigger(defaults = {}) {
   let down = false;
   return {
     update(v, cfg) {
-      const p = cfg?.press ?? press, r = Math.min(cfg?.release ?? release, p);
+      const { press: p, release: r } = effectiveTrigger({ ...defaults, ...(cfg || {}) });
       v = num(v);
       if (!down && v >= p) down = true;
       else if (down && v <= r) down = false;
@@ -74,4 +84,27 @@ export function mouseAim(player, cursor, lastAim = { x: 1, y: 0 }, minDist = 0.6
   const dx = num(cursor.x) - num(player.x), dy = num(cursor.y) - num(player.y), d = Math.hypot(dx, dy);
   if (d < minDist) { const m = Math.hypot(lastAim.x, lastAim.y) || 1; return { x: lastAim.x / m, y: lastAim.y / m, mag: 1, dist: d }; }
   return { x: dx / d, y: dy / d, mag: 1, dist: d };
+}
+
+/**
+ * One drift measurement, tied to ONE identified controller (id + index). It reads that pad's raw axes only, never the
+ * merged keyboard/mouse input, and cancels if the pad disconnects or a different pad shows up.
+ * push(now, pad) -> 'sampling' | 'done' | 'cancelled';   result = { left, right } (analyseRest) when done.
+ */
+export function createDriftSession(pad, now, ms = 1500) {
+  const s = { state: 'sampling', reason: null, result: null, id: pad?.id, index: pad?.index, until: now + ms, left: [], right: [] };
+  const same = p => !!p && p.connected === true && p.id === s.id && p.index === s.index;
+  const cancel = r => { s.state = 'cancelled'; s.reason = r; return s.state; };
+  if (!pad || !pad.connected) cancel('No controller connected. Press a button on it first.');
+  return Object.assign(s, {
+    push(t, p) {
+      if (s.state !== 'sampling') return s.state;
+      if (!p || !p.connected) return cancel('The controller disconnected, so the measurement was cancelled.');
+      if (!same(p)) return cancel('A different controller appeared, so the measurement was cancelled.');
+      s.left.push({ x: p.left.x, y: p.left.y }); s.right.push({ x: p.right.x, y: p.right.y });
+      if (t >= s.until) { s.result = { left: analyseRest(s.left), right: analyseRest(s.right) }; s.state = 'done'; }
+      return s.state;
+    },
+    canApply(p) { return s.state === 'done' && same(p); },
+  });
 }

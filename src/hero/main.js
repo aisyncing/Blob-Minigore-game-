@@ -175,7 +175,7 @@ function onHit(h) {
 /* ------------------------------ simulation (fixed 120 Hz) ------------------------------ */
 let shake = 0;
 function simStep(h) {
-  if (mode !== 'play') return;
+  if (mode !== 'play') { input.consumeTap(); return; }      // taps made on menus must not fire a shot when play starts
   const v = player.v; stepVelocity(v, snap.move, P, h);
   const sp = Math.hypot(v.x, v.y);
   if (snap.move.mag > 0.4 && sp > 3 && (v.x * snap.move.x + v.y * snap.move.y) / (sp * snap.move.mag) < -0.3) { player.skidT -= h; if (player.skidT <= 0) { player.skidT = 0.05; fx.dust(player.x, player.y, v.x / sp, v.y / sp, 0.9); } }
@@ -203,6 +203,7 @@ function simStep(h) {
     else if (e.type === 'reloadStart') audio.sfx.open();
     else if (e.type === 'reloadDone') { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(0.2, 0.3, 30); }
   }
+  input.consumeTap();                                        // this step has now seen any tap; fire falls back to the real held state
   pellets.step(h, arena.world, targets, onHit);
   for (const t of targets) {
     if (t.update(h) === 'respawned') { views.get(t).respawn(); fx.ring(t.x, t.y, 1.8, '#fff6e8', 0.4); }

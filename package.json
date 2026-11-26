@@ -7,7 +7,7 @@
     "build": "node tools/build.mjs",
     "test": "node --test tests/*.test.mjs",
     "serve": "python3 -m http.server 8080 --directory dist",
-    "test:browser": "node tests/browser/controller-startup.mjs && node tests/browser/aim-and-shot.mjs"
+    "test:browser": "node tests/browser/controller-startup.mjs && node tests/browser/aim-and-shot.mjs && node tests/browser/input-fixes.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

@@ -1,6 +1,6 @@
 // Iteration 0: Controller lab.
 // Goal: prove the controller works and tune stick feel before any game exists.
-import { shapeStick, curveAt, analyseRest, clamp, mouseAim } from '../input/process.js';
+import { shapeStick, curveAt, analyseRest, createDriftSession, clamp, mouseAim } from '../input/process.js';
 import { BUTTON_NAMES } from '../input/pad.js';
 import { createInput } from '../input/source.js';
 import { DEFS, tuning } from '../tuning.js';
@@ -32,6 +32,7 @@ $('#app').innerHTML = `
       </div>
       <div class="trig" id="tLT"><span>LT</span><div class="bar"><b></b></div><span class="num"></span></div>
       <div class="trig" id="tRT"><span>RT</span><div class="bar"><b></b><u></u><s></s></div><span class="num"></span></div>
+      <div class="hint" id="trigEff"></div>
       <div class="btns" id="btns"></div>
     </section>
     <section class="panel curve">
@@ -128,17 +129,24 @@ const I = {
 function sampleInput(now) { const snap = input.sample(now); const p = snap.pad; lastPad = p.connected ? p : null; return p; }
 
 /* ------------------------------ drift measurement ------------------------------ */
-let drift = null; // { left:[], right:[], until }
-$('#bDrift').onclick = () => { drift = { left: [], right: [], until: performance.now() + 1500 }; $('#driftOut').textContent = 'Sampling for 1.5 s. Do not touch the sticks.'; };
-function stepDrift(now) {
+let drift = null;   // a createDriftSession: reads ONE identified pad's raw axes, never the keyboard or mouse
+$('#bDrift').onclick = () => {
+  drift = createDriftSession(lastPad || { connected: false }, performance.now(), 1500);
+  $('#driftOut').textContent = drift.state === 'cancelled' ? drift.reason : 'Sampling this controller for 1.5 s. Do not touch its sticks.';
+  if (drift.state === 'cancelled') drift = null;
+};
+function stepDrift(now, pad) {
   if (!drift) return;
-  drift.left.push({ ...I.leftRaw }); drift.right.push({ ...I.rightRaw });
-  if (now < drift.until) return;
-  const l = analyseRest(drift.left), r = analyseRest(drift.right); drift = null;
-  const out = $('#driftOut');
+  const st = drift.push(now, pad), out = $('#driftOut');
+  if (st === 'cancelled') { out.textContent = drift.reason; drift = null; return; }
+  if (st !== 'done') return;
+  const session = drift, { left: l, right: r } = session.result; drift = null;
   out.innerHTML = `Rest drift: left <b>${fmt(l.max, 3)}</b>, right <b>${fmt(r.max, 3)}</b>. Suggested inner deadzone: left <b>${fmt(l.suggested)}</b>, right <b>${fmt(r.suggested)}</b>. `;
   const apply = document.createElement('button'); apply.textContent = 'Apply'; apply.className = 'primary';
-  apply.onclick = () => { tuning.set('left.inner', l.suggested); tuning.set('right.inner', r.suggested); apply.remove(); };
+  apply.onclick = () => {
+    if (!session.canApply(lastPad || { connected: false })) { out.textContent = 'That controller is no longer connected, so nothing was applied. Measure again.'; return; }
+    tuning.set('left.inner', l.suggested); tuning.set('right.inner', r.suggested); apply.remove();
+  };
   out.appendChild(apply);
 }
 
@@ -283,6 +291,8 @@ function updateHud(p) {
   $('.bar>b', rt).style.width = I.rt * 100 + '%'; $('.num', rt).textContent = fmt(I.rt);
   $('.bar>u', rt).style.left = t.press * 100 + '%'; $('.bar>s', rt).style.left = t.release * 100 + '%';
   rt.querySelector('.bar').classList.toggle('down', I.fire);
+  { const cfg = { press: tuning.get('trigger.press'), release: tuning.get('trigger.release') }, same = Math.abs(cfg.release - t.release) < 1e-9 && Math.abs(cfg.press - t.press) < 1e-9;
+    $('#trigEff').innerHTML = `In use: presses at <b>${fmt(t.press)}</b>, releases at <b>${fmt(t.release)}</b>` + (same ? '' : ` <em>(your sliders say ${fmt(cfg.press)} / ${fmt(cfg.release)}; release is always kept just below press)</em>`); }
   const host = $('#btns');
   if (!host.children.length) BUTTON_NAMES.forEach(n => { const d = document.createElement('div'); d.className = 'btn'; d.textContent = n; host.appendChild(d); });
   [...host.children].forEach((el, i) => el.classList.toggle('on', !!I.buttons[i]?.pressed));
@@ -299,9 +309,10 @@ function frame(now) {
   if (dtMs > 25) longFrames++;
   acc += Math.min(0.1, dtMs / 1000);
   const p = sampleInput(now);
-  stepDrift(now);
+  stepDrift(now, p);
   stepsLast = 0;
   while (acc >= SIM_STEP) { simStep(SIM_STEP); acc -= SIM_STEP; stepsLast++; frameCount++; }
+  if (stepsLast > 0) input.consumeTap();                 // a click or Space tap stays pending until a simulation step has seen it
   drawStick($('#cvL'), I.leftRaw, I.left, tuning.stick('left'));
   drawStick($('#cvR'), I.rightRaw, I.right, tuning.stick('right'));
   drawCurves(); drawArena(); drawSpark();

@@ -51,7 +51,8 @@ test('trigger has hysteresis', () => {
 test('trigger release above press is clamped so it can never stick down', () => {
   const t = makeTrigger();
   t.update(1, { press: 0.4, release: 0.9 });
-  assert.equal(t.update(0.39, { press: 0.4, release: 0.9 }), false);
+  assert.equal(t.update(0.39, { press: 0.4, release: 0.9 }), true, 'release is clamped to press minus a small gap (0.38), so 0.39 is still held: no chatter');
+  assert.equal(t.update(0.37, { press: 0.4, release: 0.9 }), false);
 });
 test('drift analysis suggests a deadzone above the worst rest sample', () => {
   const r = analyseRest([{ x: 0.02, y: 0.01 }, { x: -0.03, y: 0.04 }, { x: 0.01, y: -0.02 }]);

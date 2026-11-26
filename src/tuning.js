@@ -1,6 +1,8 @@
 // Central tuning registry. Every feel value lives here so you can tweak it live,
 // copy the numbers, and we lock them into the game when you're happy.
 
+import { effectiveTrigger } from './input/process.js';
+
 export const DEFS = [
   { key: 'left.inner',  group: 'Left stick (move)', label: 'Inner deadzone', min: 0,   max: 0.4, step: 0.005, def: 0.12 },
   { key: 'left.outer',  group: 'Left stick (move)', label: 'Outer deadzone', min: 0.6, max: 1,   step: 0.005, def: 0.95 },
@@ -77,5 +79,5 @@ export const tuning = {
   snapshot: () => ({ ...values }),
   apply(obj) { for (const [k, v] of Object.entries(obj)) if (k in values) values[k] = v; persist(); listeners.forEach(f => f(null)); },
   stick: side => ({ inner: values[side + '.inner'], outer: values[side + '.outer'], curve: values[side + '.curve'] }),
-  trigger: () => ({ press: values['trigger.press'], release: values['trigger.release'] }),
+  trigger: () => effectiveTrigger({ press: values['trigger.press'], release: values['trigger.release'] }),   // what the game really uses (release is always below press)
 };
