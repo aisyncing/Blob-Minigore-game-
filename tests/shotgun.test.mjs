@@ -56,3 +56,45 @@ test('capacity and timings are tunable', () => {
 test('setParams changing capacity down clamps ammo', () => {
   const g = createShotgun({ capacity: 6 }); g.setParams({ capacity: 2 }); assert.equal(g.state.ammo, 2);
 });
+
+// ---- finding 11: the reload duration is captured when a reload starts
+test('changing the reload time mid-reload never makes progress jump or go backwards; edits apply to the next reload', () => {
+  for (const change of [2.0, 0.3]) {
+    const g = createShotgun({ capacity: 2, interval: 0.28, reload: 0.95 }); const dt = 1 / 120;
+    for (let i = 0; i < 400 && !g.reloading; i++) g.update(dt, { fire: true });                                                  // both shells gone, reload starts
+    assert.ok(g.reloading); let prev = g.progress, steps = 0, started = 0;
+    while (g.reloading && steps++ < 5000) {
+      if (steps === 40) g.setParams({ capacity: 2, interval: 0.28, reload: change });                                                  // slider moved mid-reload
+      else g.setParams({ capacity: 2, interval: 0.28, reload: steps > 40 ? change : 0.95 });
+      const ev = g.update(dt, {}); const pr = g.progress;
+      if (!ev.some(e => e.type === 'reloadDone')) { assert.ok(pr >= prev - 1e-9 && pr <= 1, `progress ${prev} -> ${pr}`); prev = pr; }
+    }
+    assert.ok(Math.abs(steps * dt - 0.95) < 0.2, `still takes about the original 0.95 s (took ${steps * dt}) when the slider moved to ${change}`);
+    for (let i = 0; i < 400 && !g.reloading; i++) g.update(dt, { fire: true });                                                  // next reload
+    const t0 = g.state.reloadTotal; assert.equal(t0, change, 'the next reload uses the new duration');
+  }
+});
+test('each reload event fires once however the duration is edited', () => {
+  const g = createShotgun({ capacity: 2, reload: 0.95 }); const ev = [];
+  g.update(0.01, { fire: true }); g.update(0.3, { fire: true }); g.update(0.3, {});
+  for (let i = 0; i < 400; i++) { g.setParams({ capacity: 2, reload: i % 2 ? 0.2 : 3 }); ev.push(...g.update(1 / 120, {}).map(e => e.type)); }
+  assert.equal(ev.filter(e => e === 'reloadStart').length <= 1, true); assert.equal(ev.filter(e => e === 'reloadDone').length, 1);
+});
+
+// ---- finding 12: which chambers need shells
+test('the gun remembers which barrels were fired, and clears that when the reload finishes', () => {
+  const g = createShotgun({ capacity: 2, interval: 0.28, reload: 0.5 });
+  g.update(0.01, { fire: true }); g.update(0.01, {});
+  assert.deepEqual([...g.state.spent], [true, false], 'one shell fired: one empty chamber');
+  g.update(0.4, { reload: true }); g.update(0.01, { reload: false });
+  assert.deepEqual([...g.state.spent], [true, false], 'the mask holds for the whole reload');
+  for (let i = 0; i < 200; i++) g.update(1 / 120, {});
+  assert.deepEqual([...g.state.spent], [false, false]); assert.equal(g.state.ammo, 2);
+});
+test('an empty two-shell gun has both chambers empty; capacity 1 always uses one chamber', () => {
+  const g = createShotgun({ capacity: 2, interval: 0.1, reload: 5 }); g.update(0.01, { fire: true }); g.update(0.2, { fire: true }); g.update(0.01, {});
+  assert.deepEqual([...g.state.spent], [true, true]);
+  const h = createShotgun({ capacity: 1, interval: 0.1, reload: 0.2 }); const barrels = [];
+  for (let i = 0; i < 6; i++) { for (let k = 0; k < 120; k++) barrels.push(...h.update(1 / 60, { fire: k < 2 }).filter(e => e.type === 'shot').map(e => e.barrel)); }
+  assert.ok(barrels.length >= 3 && barrels.every(b => b === 0), `capacity 1 fires barrel 0 only: ${barrels}`);
+});

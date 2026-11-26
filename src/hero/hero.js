@@ -36,7 +36,10 @@ export class Hero {
     for (let i = 0; i < 8; i++) { const a = (-105 + i * 30) * Math.PI / 180, sh = buildShell(0.8); sh.position.set(Math.sin(a) * (this.d.belt.r + 0.03), -0.06, Math.cos(a) * (this.d.belt.r + 0.03)); sh.rotation.set(0, 0, 0); this.belt.add(sh); this.beltShells.push({ sh, a }); }
     this.beltGrabAngle = this.meta.belt_grab_angle;                              // left-front: where the authored hand reaches
     this.beltShells.forEach(b => { b.near = Math.abs(b.a - this.beltGrabAngle); });
-    this.nearest2 = [...this.beltShells].sort((a, b) => a.near - b.near).slice(0, 2);
+    this.beltByReach = [...this.beltShells].sort((a, b) => a.near - b.near);        // the free hand takes shells from the front of this list
+    // the two carried shells in the rig: A goes to chamber 0 (L), B to chamber 1 (R); only the ones this reload needs are drawn
+    this.carried = [null, null]; this.rig.traverse(o => { if (o.isBone) return; const m = /^shell([AB])(_\d+)?$/.exec(o.name); if (m) this.carried[m[1] === 'A' ? 0 : 1] = o; });   // the loader renames the meshes' parent groups (shellA_1)
+    if (!this.carried[0] || !this.carried[1]) throw new Error('hero rig: carried shells not found');
     this.reloadPrev = -1; this.onReloadStage = null;
     // animation state
     this.legYaw = Math.PI; this.aimYaw = Math.PI; this.phase = 0; this.stepN = 0; this.t = Math.random() * 10;
@@ -92,7 +95,8 @@ export class Hero {
 
     // arms + gun: scrub the authored clips. Reload progress comes straight from the gun's state, so animation, sounds and ammo never drift apart.
     const rl = s.reload ?? -1, pose = reloadPose(rl);
-    for (const stage of crossed(this.reloadPrev, rl)) this.#reloadStage(stage, s.spent ?? 2);
+    const need = s.spent ?? [true, true], needN = (need[0] ? 1 : 0) + (need[1] ? 1 : 0);     // which chambers are empty: that is all this reload ejects, fetches and loads
+    for (const stage of crossed(this.reloadPrev, rl)) this.#reloadStage(stage, need);
     this.reloadPrev = rl;
     this.fireT += dt;
     this.wReload += ((rl >= 0 ? 1 : 0) - this.wReload) * smooth(40, dt);                       // blend in/out over a few frames; the poses match at both ends anyway
@@ -102,7 +106,9 @@ export class Hero {
     this.mixer.update(0);
     this.rig.position.y = bob * 0.5;
     this.handShellsHidden = !pose.shellsInHand;
-    for (const b of this.beltShells) b.sh.visible = !(pose.beltTaken && this.nearest2.includes(b));
+    this.carried.forEach((c, i) => { if (c) c.visible = !!need[i]; });
+    const taken = this.beltByReach.slice(0, needN);
+    for (const b of this.beltShells) b.sh.visible = !(pose.beltTaken && taken.includes(b));
     this.shadow.scale.setScalar(1 + this.s * 0.2);
   }
 
@@ -112,10 +118,11 @@ export class Hero {
     this.onStep?.(side, speedF);
   }
 
-  #reloadStage(stage, spent) {
+  #reloadStage(stage, need) {
     if (stage === 'eject') {
       this.root.updateMatrixWorld(true); const cos = Math.cos(this.aimYaw), sin = Math.sin(this.aimYaw);
-      for (let i = 0; i < Math.min(2, spent); i++) {
+      for (let i = 0; i < 2; i++) {
+        if (!need[i]) continue;
         const w = this.chamberBones[i].getWorldPosition(new THREE.Vector3()), side = i === 0 ? -1 : 1;     // chambers pop up and out to either side, then tumble to the ground
         this.fx?.casing(w.x, w.y, w.z, -cos * side * R2(0.8, 1.6) + sin * R2(-1.4, -0.4), R2(4, 5.5), sin * side * R2(0.8, 1.6) + cos * R2(-1.4, -0.4));
       }

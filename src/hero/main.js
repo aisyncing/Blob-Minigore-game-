@@ -196,7 +196,7 @@ function simStep(h) {
   player.assistTarget = helped.target;
 
   // the gun
-  gun.setParams({ capacity: P.capacity, interval: P.interval, reload: P.reload });
+  gun.setParams({ capacity: P.capacity, interval: P.interval, reload: P.reload });      // a changed reload time only applies to the NEXT reload
   const reloadKey = input.keys.has('KeyR') || !!snap.buttons[2]?.pressed;
   for (const e of gun.update(h, { fire: snap.fire, reload: reloadKey })) {
     if (e.type === 'shot') shoot(e.barrel);
@@ -236,7 +236,7 @@ function choose(i) {
   heroes.forEach((h, k) => h.setVisible(mode === 'compare' || k === i)); pick.position.x = (i - 1) * 4.6;
   if (mode === 'play') {
     heroes[i].legYaw = heroes[i].aimYaw = Math.atan2(player.aimX, player.aimY);
-    heroes[i].reloadPrev = gun.reloading ? 1 - gun.state.reloadLeft / P.reload : -1;     // pick the reload up where it is, don't replay its earlier beats
+    heroes[i].reloadPrev = gun.progress;     // pick the reload up where it is, don't replay its earlier beats
   }
 }
 function setMode(m) {
@@ -336,7 +336,7 @@ function updateAmmoHud() {
   const cap = P.capacity, host = $('#shells');
   if (shellCount !== cap) { shellCount = cap; host.innerHTML = '<i></i>'.repeat(cap); }
   [...host.children].forEach((el, i) => el.classList.toggle('on', i < gun.state.ammo));
-  $('#reloadBar i').style.width = gun.reloading ? (100 - gun.state.reloadLeft / P.reload * 100) + '%' : '0%';
+  $('#reloadBar i').style.width = gun.reloading ? gun.progress * 100 + '%' : '0%';
   $('#ammo').classList.toggle('reloading', gun.reloading);
 }
 
@@ -381,7 +381,7 @@ function frame(now) {
     heroes.forEach((h, i) => { const d = demoState(i, clock); h.update(dtv, { x: SHOW.x + (i - 1) * 4.6, y: SHOW.z, ...d }, P); });
   } else {
     const h = heroes[selected];
-    h.update(dtv, { x: player.x, y: player.y, vx: player.vx, vy: player.vy, speed: player.speed, aimYaw: player.hasAim ? Math.atan2(player.aimX, player.aimY) : null, reload: gun.reloading ? 1 - gun.state.reloadLeft / P.reload : -1, spent: Math.min(2, P.capacity - gun.state.ammo) }, P);
+    h.update(dtv, { x: player.x, y: player.y, vx: player.vx, vy: player.vy, speed: player.speed, aimYaw: player.hasAim ? Math.atan2(player.aimX, player.aimY) : null, reload: gun.progress, spent: [gun.state.spent[1], gun.state.spent[0]] }, P);
     // aim cone shows spread, range, and the full-damage zone
     aimGroup.visible = player.hasAim || snap.fire; aimGroup.position.set(player.x, 0, player.y); aimGroup.rotation.y = Math.atan2(player.aimX, player.aimY);
     coneOuter.mesh.position.z = coneInner.mesh.position.z = muzzleReach(); coneOuter.set(P.spread, P.range); coneInner.set(P.spread, P.falloffStart);
