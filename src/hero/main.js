@@ -15,6 +15,7 @@ import { assistAim } from '../game/assist.js';
 import { Target } from '../game/targets.js';
 import { mouseAim } from '../input/process.js';
 import { createInput } from '../input/source.js';
+import { createMenuNav, menuCommands } from '../input/menu.js';
 import { DEFS, PRESETS, tuning } from '../tuning.js';
 import { DESIGNS } from './designs.js';
 import { Hero } from './hero.js';
@@ -52,7 +53,7 @@ $('#app').innerHTML = `
   <h2>Diagnostics</h2><div class="diag" id="diag"></div>
 </aside>
 <button id="panelBtn">Tuning</button>
-<div id="focus"><div><h1>Blob Shooter</h1><p>Click to start. WASD moves, the mouse aims, hold left click to fire, R reloads.</p><p style="opacity:.7;font-size:12px">A controller works too: press any button.</p></div></div>`;
+<div id="focus"><div><h1>Blob Shooter</h1><p>Click to start. WASD moves, the mouse aims, hold left click to fire, R reloads.</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button to start, then D-pad or LB/RB to pick a hero and <b>A</b> to play.</p></div></div>`;
 
 /* ------------------------------ engine ------------------------------ */
 const canvas = $('#c');
@@ -253,8 +254,8 @@ function setMode(m) {
 }
 function updateHint() {
   $('#hint').innerHTML = mode === 'compare'
-    ? '<b>1</b><b>2</b><b>3</b> choose a design, <b>Enter</b> or the Play button to try it. Each one walks, strafes, idles and reloads so you can judge it.'
-    : '<b>WASD</b> move, mouse aims, <b>click</b> fires, <b>R</b> reloads, <b>C</b> compare, <b>1</b><b>2</b><b>3</b> switch design. The training range is in the north-west corner.';
+    ? '<b>1</b><b>2</b><b>3</b> choose a design, <b>Enter</b> or the Play button to try it. Each one walks, strafes, idles and reloads so you can judge it.<br>Controller: <b>D-pad</b> / <b>LB</b><b>RB</b> choose, <b>A</b> plays.'
+    : '<b>WASD</b> move, mouse aims, <b>click</b> fires, <b>R</b> reloads, <b>C</b> compare, <b>1</b><b>2</b><b>3</b> switch design. The training range is in the north-west corner.<br>Controller: sticks move and aim, <b>RT</b> fires, <b>X</b> reloads, <b>B</b> back to the designs.';
 }
 $('#bMode').onclick = () => setMode(mode === 'compare' ? 'play' : 'compare');
 addEventListener('keydown', e => {
@@ -266,6 +267,18 @@ addEventListener('keydown', e => {
 });
 const startFocus = () => { audio.unlock(); $('#focus').classList.add('off'); canvas.focus(); };
 $('#focus').addEventListener('pointerdown', startFocus); canvas.addEventListener('pointerdown', startFocus);
+
+// controller menus: one action per button press (see src/input/menu.js)
+const nav = createMenuNav();
+function menuStep() {
+  const cmds = menuCommands(nav.update(snap.pad), { overlayUp: !$('#focus').classList.contains('off'), mode, selected, count: heroes.length });
+  for (const c of cmds) {
+    if (c.type === 'start') startFocus();
+    else if (c.type === 'choose') choose(c.index);
+    else if (c.type === 'play') setMode('play');
+    else if (c.type === 'compare') setMode('compare');
+  }
+}
 
 // tuning sliders, selects and toggles, grouped in collapsible sections
 const sync = [];
@@ -352,7 +365,7 @@ function frame(now) {
   if (pauseT > 0) { pauseT -= realDt; dt = 0; }                                    // hit pause: freeze the world for a few frames
   clock += dt; acc += dt;
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
-  input.sample(now); readTuning();
+  input.sample(now); menuStep(); readTuning();
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
   shake = Math.max(0, shake - realDt * 3);
   const dtv = Math.max(dt, 1e-4);
@@ -399,4 +412,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };
+window.__hero = { menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };
