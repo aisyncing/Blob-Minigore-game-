@@ -30,3 +30,22 @@ export async function openGame({ file = 'dist/hero.html', viewport = { width: 12
   const tap = async (name, ms = 60) => { await pad({ buttons: { [name]: 1 } }); await page.waitForTimeout(ms); await pad({ buttons: { [name]: 0 } }); await page.waitForTimeout(ms); };
   return { browser, page, errors, pad, tap, close: () => browser.close() };
 }
+
+// Deterministic scenes: stop the render loop, then drive the real simStep with the input snapshot set by hand.
+export async function freeze(page) { await page.evaluate(() => { window.requestAnimationFrame = () => 0; }); await page.waitForTimeout(100); }
+export async function scene(page, { hero = 0, px = 0, py = 0, aim = [0, -1], dummy = null, params = {}, tune = {} } = {}) {
+  return page.evaluate(({ hero, px, py, aim, dummy, params, tune }) => {
+    const H = window.__hero; H.setMode('play'); H.choose(hero);
+    for (const [k, v] of Object.entries(tune)) H.tuning.set(k, v);
+    Object.assign(H.P, params);
+    for (const t of H.targets) { t.alive = false; t.respawnT = 1e9; t.deadFor = 0; }
+    if (dummy) { const t = H.targets[0]; Object.assign(t, { x: dummy.x, y: dummy.y, alive: true, hp: t.maxHp, path: null, respawnT: 1e9 }); }
+    const p = H.player; p.x = px; p.y = py; p.v.x = p.v.y = p.kb.x = p.kb.y = 0; p.aimX = aim[0]; p.aimY = aim[1]; p.hasAim = true;
+    H.gun.reset(); H.pellets.clear(); H.stats.shots = H.stats.pellets = H.stats.hits = H.stats.damage = H.stats.kills = 0;
+    const h = H.heroes[hero]; h.aimYaw = Math.atan2(aim[0], aim[1]); h.legYaw = h.aimYaw;
+    Object.assign(H.snap, { mouseAim: false, fire: false }); H.snap.aim.x = H.snap.aim.y = H.snap.aim.mag = 0; H.snap.move.x = H.snap.move.y = H.snap.move.mag = 0;
+    h.update(1 / 60, { x: px, y: py, vx: 0, vy: 0, speed: 0, aimYaw: h.aimYaw, reload: -1, spent: 0 }, H.P);
+    return true;
+  }, { hero, px, py, aim, dummy, params, tune });
+}
+export const steps = (page, n, setup) => page.evaluate(({ n }) => { for (let i = 0; i < n; i++) window.__hero.simStep(1 / 120); }, { n });

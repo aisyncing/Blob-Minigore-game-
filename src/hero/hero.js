@@ -126,6 +126,13 @@ export class Hero {
   /** Pull the trigger visually: plays the authored fire clip (recoil of gun and arms). */
   fire() { this.fireT = 0; }
 
+  /**
+   * Put the visible hero exactly where the simulation says it is, aimed along `yaw`, right now. Called at the instant of firing so the gun,
+   * the muzzle flash and the pellet origin all come from the same pose (the torso normally eases toward the aim over a few frames,
+   * and the body is only moved once per rendered frame).
+   */
+  snapAim(x, y, yaw) { this.aimYaw = yaw; this.root.position.set(x, 0, y); this.torso.rotation.y = yaw; this.root.updateMatrixWorld(true); }
+
   /** World position of the muzzle (where the pellets and the flash start). */
   muzzleWorld(out = new THREE.Vector3()) { this.root.updateMatrixWorld(true); return this.muzzleBone.getWorldPosition(out); }
 }

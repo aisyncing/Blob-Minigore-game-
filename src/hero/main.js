@@ -8,10 +8,10 @@ import { createArena, SPAWN } from '../game/arena.js';
 import { LAYOUT } from '../game/layout.js';
 import { resolveWorld, circleVsCircle } from '../game/collide.js';
 import { stepVelocity, moveStats } from '../game/movement.js';
-import { raycast } from '../game/ballistics.js';
 import { PelletSim, pelletPattern } from '../game/pellets.js';
 import { createShotgun } from '../game/shotgun.js';
-import { assistAim } from '../game/assist.js';
+import { chooseAim } from '../game/assist.js';
+import { launchBlast } from '../game/blast.js';
 import { Target } from '../game/targets.js';
 import { mouseAim } from '../input/process.js';
 import { createInput } from '../input/source.js';
@@ -134,24 +134,22 @@ const _m = new THREE.Vector3();
 function muzzleReach() { return heroes[selected].muzzleReach; }
 
 function shoot(barrel) {
-  const h = heroes[selected], ax = player.aimX, ay = player.aimY, reach = muzzleReach();
+  const h = heroes[selected], ax = player.aimX, ay = player.aimY;
+  // the visible gun takes the exact aim and position of this shot first, so the flash, the gun and the pellet origin are one and the same place
+  h.snapAim(player.x, player.y, Math.atan2(ax, ay)); h.muzzleWorld(_m);
   const side = barrel ? 0.078 : -0.078, px = -ay, py = ax;                              // barrels sit left/right of the centre line
-  let ox = player.x + ax * reach + px * side, oy = player.y + ay * reach + py * side;
-  const clip = raycast(player.x, player.y, ox, oy, arena.world, []);                     // gun poking into a wall: the pellets start at the wall
-  if (clip) { ox = clip.x; oy = clip.y; }
-  const id = ++shotId, spec = { speed: 0, range: P.range, damage: P.damage, falloffStart: P.falloffStart, minDamage: P.minDamage, shot: id };
-  for (const a of pelletPattern(P.pellets, P.spread, P.bias)) {
-    const c = Math.cos(a), s = Math.sin(a); spec.speed = P.pelletSpeed * R2(0.94, 1.06);
-    pellets.spawn(ox, oy, ax * c - ay * s, ax * s + ay * c, { ...spec });
-  }
+  const muzzle = { x: _m.x + px * side, y: _m.z + py * side };
+  const id = ++shotId, spec = { range: P.range, damage: P.damage, falloffStart: P.falloffStart, minDamage: P.minDamage };
   const st = { id, fired: P.pellets, hits: 0, damage: 0, nearest: Infinity, kills: 0, t: performance.now() }; stats.recent.set(id, st); stats.last = st; stats.shots++; stats.pellets += P.pellets;
   if (stats.recent.size > 6) stats.recent.delete(stats.recent.keys().next().value);
+  // anything between the player and the muzzle (a dummy against the gun, a wall) is resolved before the pellets start flying
+  launchBlast({ sim: pellets, from: player, muzzle, dir: { x: ax, y: ay }, angles: pelletPattern(P.pellets, P.spread, P.bias), spec, speed: () => P.pelletSpeed * R2(0.94, 1.06), world: arena.world, targets, shot: id, onHit });
   // recoil on the hero, kick on the gun and camera
   player.kb.x -= ax * P.recoil; player.kb.y -= ay * P.recoil; h.fire();
   const kbm = Math.hypot(player.kb.x, player.kb.y); if (kbm > 12) { player.kb.x *= 12 / kbm; player.kb.y *= 12 / kbm; }   // rapid fire can't stack a shove without limit
   ck.vx += -ax * P.camKick * 14; ck.vz += -ay * P.camKick * 14;
-  // the muzzle flash is drawn where the gun really is on screen
-  h.muzzleWorld(_m); fx.wad(_m.x, 0.8, _m.z, ax, ay); fx.flash(_m.x, 0.8, _m.z, ax, ay); fx.smoke(_m.x, 0.8, _m.z, ax, ay); fx.sparks(_m.x, _m.z, ax, ay, '#ffd88a', 6);
+  // the muzzle flash is drawn where the pellets start
+  fx.wad(_m.x, 0.8, _m.z, ax, ay); fx.flash(_m.x, 0.8, _m.z, ax, ay); fx.smoke(_m.x, 0.8, _m.z, ax, ay); fx.sparks(_m.x, _m.z, ax, ay, '#ffd88a', 6);
   audio.sfx.blast(barrel); if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(0.9, 0.55, 70);
 }
 function onHit(h) {
@@ -189,13 +187,12 @@ function simStep(h) {
   if (impact > 2.5 && player.impact <= 0) { player.impact = 0.15; fx.dust(player.x, player.y, -v.x, -v.y, Math.min(1, impact / 7)); shake = Math.max(shake, Math.min(0.25, impact * 0.025)); }
   player.impact -= h; player.vx = v.x + player.kb.x; player.vy = v.y + player.kb.y; player.speed = Math.hypot(player.vx, player.vy);
 
-  // aim: cursor is exact; stick and arrows may be helped; with no aim input the gun fires along the walking direction
-  let raw = { x: 0, y: 0 };
-  if (snap.mouseAim) { const a = mouseAim(player, input.mouse, { x: player.aimX, y: player.aimY }); raw = { x: a.x, y: a.y }; }
-  else if (snap.aim.mag > 0.02) raw = { x: snap.aim.x / snap.aim.mag, y: snap.aim.y / snap.aim.mag };
-  else if (snap.fire && snap.move.mag > 0.2) raw = { x: snap.move.x / snap.move.mag, y: snap.move.y / snap.move.mag };
-  const helped = assistAim(player, raw, targets, arena.world, { mode: snap.mouseAim ? 'manual' : P.assistMode, coneDeg: P.assistCone, strength: P.assistStrength, range: P.range + 3 });
-  if (helped.aiming) { player.aimX = helped.x; player.aimY = helped.y; player.hasAim = true; } else player.hasAim = snap.fire;   // firing without aim input keeps the last direction
+  // aim: explicit input (cursor, right stick, arrows) wins; otherwise auto mode picks a visible target; otherwise, while firing, the walking direction
+  let explicit = { x: 0, y: 0 };
+  if (snap.mouseAim) { const a = mouseAim(player, input.mouse, { x: player.aimX, y: player.aimY }); explicit = { x: a.x, y: a.y }; }
+  else if (snap.aim.mag > 0.02) explicit = { x: snap.aim.x / snap.aim.mag, y: snap.aim.y / snap.aim.mag };
+  const helped = chooseAim(player, explicit, snap.move, snap.fire, targets, arena.world, { mode: snap.mouseAim ? 'manual' : P.assistMode, coneDeg: P.assistCone, strength: P.assistStrength, range: P.range + 3 });
+  if (helped.aiming) { player.aimX = helped.x; player.aimY = helped.y; player.hasAim = true; } else player.hasAim = snap.fire;   // firing without any aim keeps the last direction
   player.assistTarget = helped.target;
 
   // the gun

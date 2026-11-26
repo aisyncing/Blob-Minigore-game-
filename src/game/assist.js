@@ -42,3 +42,17 @@ export function assistAim(origin, dir, targets, world, { mode = 'assist', coneDe
   const out = yaw + wrap(best.v.bearing - yaw) * pull;
   return { x: Math.sin(out), y: Math.cos(out), aiming: true, target: best.v.t };
 }
+
+/**
+ * Who decides where the gun points. Priority: explicit aim (stick / mouse / arrows, optionally helped) >
+ * an auto-target (auto mode only) > the walking direction while firing > nothing.
+ * @param explicit {x,y} unit vector or (0,0) when the player is not aiming themselves; walk {x,y,mag}
+ * @returns { x, y, aiming, target, source: 'explicit'|'auto'|'walk'|'none' }
+ */
+export function chooseAim(origin, explicit, walk, fire, targets, world, opts) {
+  const has = Math.hypot(explicit.x, explicit.y) > 1e-6;
+  const helped = assistAim(origin, explicit, targets, world, opts);
+  if (helped.aiming) return { ...helped, source: has ? 'explicit' : 'auto' };
+  if (fire && walk.mag > 0.2) return { x: walk.x / walk.mag, y: walk.y / walk.mag, aiming: true, target: null, source: 'walk' };
+  return { ...helped, source: 'none' };
+}
