@@ -33,39 +33,51 @@ const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '-');
 $('#app').innerHTML = `
 <canvas id="c" tabindex="0"></canvas><div id="vig"></div>
 <div id="top">
-  <h1>Blob Shooter<small>Iteration 2 · aiming and the shotgun</small></h1>
+  <h1>Blob Shooter</h1>
   <button id="bMode" class="primary">Play</button>
+  <button id="bPad">Controller</button>
   <span class="pill" id="chipSrc">Keyboard + mouse</span>
 </div>
 <div id="cards"></div>
 <div id="hint"></div>
 <div id="ammo"><div id="shells"></div><div id="reloadBar"><i></i></div></div>
 <aside id="panel">
-  <div class="note"><b>Every number here is our own guess.</b> Minigore's real values are not published, so none are copied from it. They get replaced by measured values once we have reference footage.</div>
-  <h2>Feel presets (movement)</h2>
-  <div class="actions" id="presets"></div>
-  <div class="stat" id="stats"></div>
+  <h2>Game feel</h2>
   <div id="sliders"></div>
-  <details><summary>Controller deadzones</summary><div id="inputSliders"></div></details>
-  <details id="feel"><summary>Controller feel (PS5)</summary>
-    <div class="hint" id="dsStatus"></div>
-    <div class="hint" id="dsRumble"></div>
-    <div class="actions"><button id="bDs">Connect adaptive triggers</button>
-      <select id="dsLayout" title="Only matters over Bluetooth"><option value="auto">Layout: automatic</option><option value="usb">Force USB layout</option><option value="bt-a">Bluetooth layout A</option><option value="bt-b">Bluetooth layout B</option></select></div>
-    <div class="hint">Rumble tests (browser vibration):</div>
-    <div class="actions"><button data-rt="barrel1">1st barrel</button><button data-rt="barrel2">2nd barrel</button><button data-rt="reload">Reload clicks</button><button data-rt="dry">Dry click</button><button id="bRamp">Strength ramp</button></div>
-    <div class="hint">Trigger tests (hold RT while you try them, 6 seconds each):</div>
-    <div class="actions"><button data-tt="first">1st barrel</button><button data-tt="second">2nd barrel</button><button data-tt="locked">Locked</button><button data-tt="kick">Buzz</button><button data-tt="off">Normal</button></div>
+  <div class="actions"><button id="bReset">Reset</button><button id="bHide">Hide</button></div>
+  <details><summary>Advanced</summary>
+    <div class="actions"><button id="bCopy">Copy my settings</button><button id="bRange">Reset range</button></div>
+    <h2>Movement presets</h2><div class="actions" id="presets"></div><div class="stat" id="stats"></div>
+    <h2>Last shot</h2><div class="stat" id="shotStat">Fire at a dummy.</div>
+    <label class="chk"><input type="checkbox" id="dbg"> Show colliders and numbers</label>
+    <textarea id="copyBox" readonly hidden></textarea>
+    <h2>Diagnostics</h2><div class="diag" id="diag"></div>
   </details>
-  <h2>Last shot</h2>
-  <div class="stat" id="shotStat">Fire at a dummy.</div>
-  <div class="actions"><button id="bRange">Reset range</button><button id="bReset">Reset all</button><button id="bCopy">Copy my settings</button><button id="bHide">Hide panel</button></div>
-  <label class="chk"><input type="checkbox" id="dbg"> Show colliders and numbers</label>
-  <textarea id="copyBox" readonly hidden></textarea>
-  <h2>Diagnostics</h2><div class="diag" id="diag"></div>
 </aside>
 <button id="panelBtn">Tuning</button>
-<div id="focus"><div><h1>Blob Shooter</h1><p>Click to start. WASD moves, the mouse aims, hold left click to fire, R reloads.</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button to start, then D-pad or LB/RB to pick a hero and <b>A</b> to play.</p></div></div>`;
+<div id="focus"><div class="setup">
+  <h1>Blob Shooter</h1>
+  <div class="conn" id="conn"><i class="dot"></i><div><b id="connName">No controller found</b><small id="connSub">Press any button on your controller so the browser can see it.</small></div></div>
+  <div class="cols">
+    <section>
+      <h3>Vibration</h3>
+      <div id="vibSliders"></div>
+    </section>
+    <section>
+      <h3>PS5 adaptive triggers</h3>
+      <div class="hint" id="dsStatus"></div>
+      <div class="actions"><button id="bDs">Connect adaptive triggers</button></div>
+      <details><summary>Bluetooth layout</summary><div class="actions"><select id="dsLayout" title="Only matters over Bluetooth"><option value="auto">Automatic</option><option value="usb">Force USB layout</option><option value="bt-a">Bluetooth layout A</option><option value="bt-b">Bluetooth layout B</option></select></div></details>
+    </section>
+  </div>
+  <details id="feel"><summary>Try the feel</summary>
+    <div class="hint" id="dsRumble"></div>
+    <div class="actions"><button data-rt="barrel1">1st barrel</button><button data-rt="barrel2">2nd barrel</button><button data-rt="reload">Reload</button><button data-rt="dry">Empty click</button><button id="bRamp">Strength ramp</button></div>
+    <div class="actions"><button data-tt="first">Trigger: 1st barrel</button><button data-tt="second">Trigger: 2nd barrel</button><button data-tt="locked">Locked</button><button data-tt="kick">Buzz</button><button data-tt="off">Normal</button></div>
+  </details>
+  <details><summary>Sticks and trigger</summary><div id="inputSliders"></div></details>
+  <div class="go"><button id="bStart" class="primary big">Start game</button><span id="goHint">Press <b>A</b> on the controller, or click. No controller? WASD moves, mouse aims and fires.</span></div>
+</div></div>`;
 
 /* ------------------------------ engine ------------------------------ */
 const canvas = $('#c');
@@ -279,7 +291,7 @@ function setMode(m) {
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
   if (m === 'play') { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
   heroes.forEach((h, k) => { if (m === 'compare') h.root.position.set(SHOW.x + (k - 1) * 4.6, 0, SHOW.z); });
-  $('#panel').classList.toggle('collapsed', m === 'compare' || innerWidth < 900);
+  if (m === 'compare') $('#panel').classList.add('collapsed');            // the tuning panel only opens when asked for
   $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = m === 'play' ? 'flex' : 'none';
   document.body.classList.toggle('mode-compare', m === 'compare');
   updateHint();
@@ -290,20 +302,22 @@ function updateHint() {
     : '<b>WASD</b> move, mouse aims, <b>click</b> fires, <b>R</b> reloads, <b>C</b> compare, <b>1</b><b>2</b><b>3</b> switch design. The training range is in the north-west corner.<br>Controller: sticks move and aim, <b>RT</b> fires, <b>X</b> reloads, <b>B</b> back to the designs.';
 }
 $('#bMode').onclick = () => setMode(mode === 'compare' ? 'play' : 'compare');
+const setupUp = () => !$('#focus').classList.contains('off');
 addEventListener('keydown', e => {
   if (e.repeat) return; audio.unlock();
+  if (setupUp()) { if (e.code === 'Enter' && !e.target.closest?.('button,input,select,summary')) startFocus(); return; }    // the setup screen is left on purpose: Start, A, or Enter
   if (e.code === 'Digit1') choose(0); else if (e.code === 'Digit2') choose(1); else if (e.code === 'Digit3') choose(2);
   else if (e.code === 'KeyC') setMode(mode === 'compare' ? 'play' : 'compare');
   else if (e.code === 'Enter' && mode === 'compare') setMode('play');
-  $('#focus').classList.add('off');
 });
-const startFocus = () => { audio.unlock(); $('#focus').classList.add('off'); canvas.focus(); };
-$('#focus').addEventListener('pointerdown', startFocus); canvas.addEventListener('pointerdown', startFocus);
+const startFocus = () => { audio.unlock(); $('#focus').classList.add('off'); haptics.release(); canvas.focus(); };
+$('#bStart').onclick = startFocus; canvas.addEventListener('pointerdown', () => { if (!setupUp()) { audio.unlock(); canvas.focus(); } });
+$('#bPad').onclick = () => { $('#focus').classList.remove('off'); };           // reopen the controller setup any time
 
 // controller menus: one action per button press (see src/input/menu.js)
 const nav = createMenuNav();
 function menuStep() {
-  const cmds = menuCommands(nav.update(snap.pad), { overlayUp: !$('#focus').classList.contains('off'), mode, selected, count: heroes.length });
+  const cmds = menuCommands(nav.update(snap.pad), { overlayUp: setupUp(), mode, selected, count: heroes.length });
   for (const c of cmds) {
     if (c.type === 'start') startFocus();
     else if (c.type === 'choose') choose(c.index);
@@ -316,7 +330,8 @@ function menuStep() {
 const sync = [];
 function addControls(host, defs, openGroups = []) {
   for (const g of [...new Set(defs.map(d => d.group))]) {
-    const det = document.createElement('details'); det.open = openGroups.includes(g) || !openGroups.length; det.innerHTML = `<summary>${g}<em> · our guess</em></summary>`; host.appendChild(det);
+    let det = host;                                                         // a group with no name is just a plain list of rows
+    if (g) { det = document.createElement('details'); det.open = openGroups.includes(g) || !openGroups.length; det.innerHTML = `<summary>${g}</summary>`; host.appendChild(det); }
     for (const d of defs.filter(x => x.group === g)) {
       const row = document.createElement('div'); row.className = 'row'; det.appendChild(row);
       if (d.kind === 'select') {
@@ -334,7 +349,10 @@ function addControls(host, defs, openGroups = []) {
   }
   sync.forEach(f => f());
 }
-addControls($('#sliders'), DEFS.filter(d => d.page === 'hero' && !HIDDEN_IN_GAME.has(d.key)), ['Shotgun', 'Aim', 'Feedback']);
+const VIBES = ['fx.rumble', 'fx.vibAll', 'fx.vibShoot', 'fx.vibReload', 'fx.vibWalk', 'fx.smartRumble', 'fx.triggers'];
+const gameDefs = DEFS.filter(d => d.page === 'hero' && !HIDDEN_IN_GAME.has(d.key) && !VIBES.includes(d.key));
+addControls($('#sliders'), gameDefs, ['Movement', 'Shotgun']);
+addControls($('#vibSliders'), VIBES.map(k => ({ ...DEFS.find(d => d.key === k), group: '' })).map(d => ({ ...d, label: d.label.replace(/^Vibration: /, '').replace(' (0-10)', '').replace(/^./, c => c.toUpperCase()) })));
 addControls($('#inputSliders'), DEFS.filter(d => d.page === undefined && d.group !== 'Feel pad' && !HIDDEN_IN_GAME.has(d.key)));
 tuning.onChange(() => { sync.forEach(f => f()); readTuning(); updateStats(); audio.setVolume(tuning.get('fx.volume')); });
 audio.setVolume(tuning.get('fx.volume'));
@@ -386,7 +404,7 @@ $('#bCopy').onclick = async () => {
 };
 $('#bHide').onclick = () => $('#panel').classList.add('collapsed'); $('#panelBtn').onclick = () => $('#panel').classList.remove('collapsed');
 $('#dbg').onchange = e => { arena.debug.visible = e.target.checked; };
-if (innerWidth < 900) $('#panel').classList.add('collapsed');
+$('#panel').classList.add('collapsed');
 buildCards(); choose(0); setMode('compare');
 
 // ammo HUD
@@ -467,6 +485,11 @@ function updatePelletVisuals() {
 function updateDiag() {
   const avg = ft.reduce((a, b) => a + b, 0) / Math.max(1, ft.length), sorted = ft.slice().sort((a, b) => a - b), p95 = sorted[Math.floor(sorted.length * 0.95)] || 0;
   const src = snap.source === 'controller' ? 'controller' : snap.mouseAim ? 'keyboard + mouse' : snap.source === 'keyboard' ? 'keyboard' : 'waiting';
+  if (setupUp()) {
+    const c = snap.pad.connected, name = c ? String(snap.pad.id || 'Controller').replace(/\s*\(.*$/, '').slice(0, 48) : 'No controller found';
+    $('#connName').textContent = name; $('#conn').classList.toggle('ok', c);
+    $('#connSub').textContent = c ? (dualsense.connected ? 'Connected. Adaptive triggers and vibration are on.' : 'Connected. Use "Connect adaptive triggers" for the PS5 trigger feel.') : 'Press any button on your controller so the browser can see it.';
+  }
   $('#chipSrc').textContent = src === 'controller' ? 'Controller' : 'Keyboard + mouse'; $('#chipSrc').classList.toggle('ok', src === 'controller');
   const h = heroes[selected]; let extra = '';
   if ($('#dbg').checked && mode === 'play') { const dAng = Math.abs(((h.aimYaw - h.legYaw) * 180 / Math.PI + 540) % 360 - 180); extra = `<br>speed <b>${fmt(player.speed, 2)}</b> u/s · legs vs gun <b>${fmt(dAng, 0)}°</b> · pos <b>${fmt(player.x, 1)}, ${fmt(player.y, 1)}</b><br>pellets in flight <b>${pellets.pellets.length}</b>`; }

@@ -53,3 +53,9 @@ test('hero selection wraps and only happens on the hero screen; back leaves play
   assert.deepEqual(cmd('back', 'play'), [{ type: 'compare' }]);
   assert.deepEqual(cmd('back', 'compare'), []);
 });
+
+test('on the setup screen only A starts the game; any other press just wakes the pad', () => {
+  assert.deepEqual(menuCommands(['any'], { overlayUp: true, mode: 'compare' }), []);
+  assert.deepEqual(menuCommands(['any', 'next'], { overlayUp: true, mode: 'compare' }), []);
+  assert.deepEqual(menuCommands(['any', 'confirm'], { overlayUp: true, mode: 'compare' }), [{ type: 'start' }]);
+});

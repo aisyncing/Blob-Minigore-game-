@@ -21,10 +21,11 @@ export function createMenuNav() {
   return { update };
 }
 
-// Decide what the game does with the actions this frame. The press that wakes the title overlay does nothing else.
+// Decide what the game does with the actions this frame. On the controller setup screen only A starts the game; any other press just
+// wakes the controller (the browser hides a pad until something is pressed), so testing the triggers cannot start a game by accident.
 export function menuCommands(actions, { overlayUp, mode, selected = 0, count = 3 }) {
   if (!actions.length) return [];
-  if (overlayUp) return actions.includes('any') ? [{ type: 'start' }] : [];
+  if (overlayUp) return actions.includes('confirm') ? [{ type: 'start' }] : [];
   const cmds = [];
   if (mode === 'compare') {
     if (actions.includes('prev')) cmds.push({ type: 'choose', index: (selected + count - 1) % count });
