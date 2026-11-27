@@ -239,6 +239,8 @@ function simStep(h) {
     if (t.dmgAcc > 0 && (t.dmgT -= h) <= 0) { if (P.numbers) fx.number(t.x, 2.6, t.y, String(Math.round(t.dmgAcc)), t.dmgKill || t.dmgAcc >= 60 ? '#ffd23f' : '#ffffff'); t.dmgAcc = 0; t.dmgKill = false; }
   }
 }
+// every footfall of the walk animation is one rumble beat, so what you feel is what you see
+for (const h of heroes) h.onStep = (side, speedF) => { if (mode === 'play' && h === heroes[selected] && snap.source === 'controller') haptics.footstep(side, speedF, smart()); };
 // the hero reports each beat of the reload animation; sounds only play for the hero you are actually controlling
 for (const h of heroes) h.onReloadStage = (stage, who) => {
   if (mode !== 'play' || who !== heroes[selected]) return;
@@ -425,7 +427,6 @@ function frame(now) {
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
   input.sample(now); menuStep(); readTuning();
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
-  haptics.walk(mode === 'play' && snap.source === 'controller' ? player.speed / Math.max(1, P.maxSpeed) : 0, smart());
   haptics.update({ mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
   shake = Math.max(0, shake - realDt * 3);
   const dtv = Math.max(dt, 1e-4);

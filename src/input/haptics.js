@@ -61,7 +61,7 @@ export function triggerPlan({ mode, reloading, ammo, capacity, kick = false }) {
  * @param opts     schedule/clear/now injectable for tests; scale() = rumble strength 0..1; triggersOn() = player setting
  */
 export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms) => setTimeout(f, ms), clear = id => clearTimeout(id), now = () => performance.now(), scale = () => 1, mix = () => 1, triggersOn = () => true } = {}) {
-  let timers = [], kickUntil = 0, lastDry = -1e9, holdUntil = 0, busyUntil = 0, nextStep = 0, stepSide = 0, hitN = 0, killN = 0, hitTimer = null, lastBump = -1e9;
+  let timers = [], kickUntil = 0, lastDry = -1e9, holdUntil = 0, busyUntil = 0, hitN = 0, killN = 0, hitTimer = null, lastBump = -1e9;
   const cancel = () => { for (const t of timers) clear(t); timers = []; };
   function play(name, gain = 1) {                                         // a new pattern replaces whatever was still playing: the latest event is what you should feel
     const fn = typeof rumble === 'function' ? rumble : null; if (!fn) return;
@@ -91,14 +91,13 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
       const t = now(); if (impact < 2.5 || t - lastBump < 250) return false; lastBump = t;
       play('bump', Math.min(1.2, 0.4 + impact / 10)); return true;
     },
-    /** Footsteps: a soft double-thump rhythm that speeds up and strengthens with speed. Never talks over a shot, a hit or a reload click. */
-    walk(speed01, on = true) {
-      const fn = typeof rumble === 'function' ? rumble : null, t = now();
-      if (!fn || !on || speed01 < 0.15) { nextStep = 0; return false; }
-      if (t < busyUntil || t < nextStep) return false;
-      const k = Math.min(1, speed01), g = scale() * mix('walk'); stepSide ^= 1;
-      fn(Math.min(1, (0.06 + 0.16 * k) * g * (stepSide ? 1 : 0.7)), Math.min(1, (0.10 + 0.14 * k) * g), 32);
-      nextStep = t + 440 - 200 * k; return true;
+    /** One footfall, called by the walk animation at the moment a foot lands, so the rumble beats exactly with the steps you see.
+     *  Stronger with speed, alternating sides, and never talks over a shot, a hit or a reload click. */
+    footstep(side, speed01, on = true) {
+      const fn = typeof rumble === 'function' ? rumble : null;
+      if (!fn || !on || speed01 < 0.15 || now() < busyUntil) return false;
+      const k = Math.min(1, speed01), g = scale() * mix('walk');
+      fn(Math.min(1, (0.06 + 0.16 * k) * g * (side ? 1 : 0.7)), Math.min(1, (0.10 + 0.14 * k) * g), 32); return true;
     },
     dry() { const t = now(); if (t - lastDry < 140) return false; lastDry = t; play('dry'); return true; },     // never a machine-gun of ticks while the trigger is held
     /** Pause the automatic trigger feel (the test buttons use this so a test is not overwritten a frame later). */
