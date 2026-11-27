@@ -17,10 +17,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 /** What may spawn right now, with weights. */
 export function spawnTable(t) {
-  const out = [{ kind: 'puff', tier: 0, w: 10 }];
-  if (t >= 18) out.push({ kind: 'puff', tier: 1, w: Math.min(6, (t - 18) * 0.15) });
+  const out = [{ kind: 'furry', tier: 0, w: 10 }];
+  if (t >= 18) out.push({ kind: 'furry', tier: 1, w: Math.min(6, (t - 18) * 0.15) });
   if (t >= 30) out.push({ kind: 'zip', tier: 0, w: Math.min(5, (t - 30) * 0.12) });
-  if (t >= 60) out.push({ kind: 'puff', tier: 2, w: Math.min(2.2, (t - 60) * 0.05) });
+  if (t >= 60) out.push({ kind: 'furry', tier: 2, w: Math.min(2.2, (t - 60) * 0.05) });
   return out;
 }
 
@@ -74,7 +74,7 @@ export function createDirector({ world, bounds, rng = Math.random, pressure = ()
           if (ring) { const a = i / n * Math.PI * 2 + side, r = 19; x = player.x + Math.cos(a) * r; y = player.y + Math.sin(a) * r; }
           else { const dx = Math.cos(side), dy = Math.sin(side); x = player.x + dx * 20 - dy * (i - n / 2) * 1.5; y = player.y + dy * 20 + dx * (i - n / 2) * 1.5; }
           x = clamp(x, bounds.minX + P.margin, bounds.maxX - P.margin); y = clamp(y, bounds.minY + P.margin, bounds.maxY - P.margin);
-          if (!blocked(x, y, world, 0.6)) announce(ev, 'puff', 0, x, y, P.swarmTelegraph);
+          if (!blocked(x, y, world, 0.6)) announce(ev, 'furry', 0, x, y, P.swarmTelegraph);
         }
       }
       // steady pressure

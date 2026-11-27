@@ -65,24 +65,17 @@ body.mode-compare #hint{top:max(58px,calc(env(safe-area-inset-top,0px) + 50px));
 #panel .hint{font-size:12px;line-height:1.45;color:var(--dim);margin:6px 0}
 #panel select{font:inherit;font-size:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:4px 6px}
 
-/* ---- survival run HUD ---- */
-#hud{position:fixed;inset:0;pointer-events:none;display:none;font-weight:700}
-body.mode-run #hud{display:block}
-#hearts{position:absolute;left:max(14px,env(safe-area-inset-left,0px));top:62px;font-size:30px;letter-spacing:3px;text-shadow:0 2px 0 #1d1530;color:#ff5d7a}
-#hearts i{font-style:normal;display:inline-block;transition:transform .15s} #hearts i.off{color:#4b3d5f;transform:scale(.8)} #hearts i.hurt{animation:hb .5s}
-@keyframes hb{0%{transform:scale(1.6)}100%{transform:scale(1)}}
-#score{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:14px;text-align:right;text-shadow:0 2px 0 #1d1530;color:#fff3d6;font-size:34px;line-height:1}
-#score small{display:block;font-size:13px;color:#ffd23f;font-weight:700;margin-top:4px;min-height:16px}
-#clock{position:absolute;left:50%;top:12px;transform:translateX(-50%);font-size:22px;color:#fff3d6;text-shadow:0 2px 0 #1d1530}
-#comboBar{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:78px;width:120px;height:6px;background:#1d1530aa;border-radius:4px;overflow:hidden;opacity:0;transition:opacity .2s}
-#comboBar i{display:block;height:100%;background:#ffd23f;width:0}
-#banner{position:absolute;left:50%;top:22%;transform:translateX(-50%) scale(.8);font-size:44px;color:#ffd23f;text-shadow:0 4px 0 #1d1530;opacity:0;transition:opacity .25s,transform .25s}
-#banner.on{opacity:1;transform:translateX(-50%) scale(1)}
-#arrows i{position:absolute;width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid #ff6fb1;filter:drop-shadow(0 2px 0 #1d1530);display:none}
-#hurtflash{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(255,40,70,0) 30%,rgba(255,40,70,.55) 100%);opacity:0;transition:opacity .35s}
+/* ---- survival run: nothing on screen while you play; the menus come back on pause and game over ---- */
+body.mode-run #top,body.mode-run #hint,body.mode-run #ammo,body.mode-run #panelBtn,body.mode-run #cards{display:none!important}
+body.mode-run #panel{display:none}
+body.mode-run.paused #top{display:flex!important} body.mode-run.paused #panelBtn{display:block!important}
+body.mode-run.paused #panel:not(.collapsed){display:block}
+#hurtflash{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(255,40,70,0) 35%,rgba(200,20,40,.5) 100%);opacity:0;transition:opacity .4s}
 #hurtflash.on{opacity:1;transition:none}
-#over{position:fixed;inset:0;display:none;place-items:center;background:rgba(8,12,18,.62);z-index:5}
-#over.on{display:grid}
-#over div{background:#fff3d6;color:#1d1530;padding:22px 34px;border-radius:22px;text-align:center;box-shadow:0 8px 0 var(--pink);min-width:300px}
-#over h1{margin:0 0 6px;font-size:34px} #over p{margin:5px 0;font-size:15px;font-weight:600} #over .big{font-size:40px;margin:8px 0;font-weight:700}
-#over button{margin-top:10px;font-size:16px;padding:8px 18px}
+body.low-hp #hurtflash:not(.on){animation:lowhp 1.15s ease-in-out infinite}
+@keyframes lowhp{0%,100%{opacity:0}50%{opacity:.4}}
+#pauseCard,#over{position:fixed;inset:0;display:none;place-items:center;background:rgba(8,12,18,.58);z-index:4}
+body.paused #pauseCard,#over.on{display:grid}
+#pauseCard>div,#over>div{background:#fff3d6;color:#1d1530;padding:22px 34px;border-radius:22px;text-align:center;box-shadow:0 8px 0 var(--pink);min-width:280px;max-width:calc(100% - 32px)}
+#pauseCard h1,#over h1{margin:0 0 6px;font-size:32px} #pauseCard p,#over p{margin:5px 0;font-size:15px;font-weight:600} #over .big{font-size:40px;margin:8px 0;font-weight:700}
+#pauseCard button,#over button{margin-top:10px;font-size:16px;padding:8px 18px}

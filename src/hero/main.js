@@ -24,13 +24,13 @@ import { Hero } from './hero.js';
 import { loadRig } from './rigAsset.js';
 import { DummyView } from './dummy.js';
 import { createSession } from '../game/run.js';
-import { runAim } from '../game/autoaim.js';
-import { createCritters, critterColor } from './critters.js';
+import { runAim, createLock, turnToward } from '../game/autoaim.js';
+import { createFurries } from './furries.js';
+import { tierOf } from '../game/crowd.js';
 
 const STEP = 1 / 120;
 const SHOW = { x: 0, z: 90 };                       // the compare stage lives far from the arena
 const $ = (s, r = document) => r.querySelector(s);
-const $$ = (s) => document.querySelector(s);
 const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '-');
 
 /* ------------------------------ page ------------------------------ */
@@ -70,7 +70,7 @@ $('#app').innerHTML = `
   <h2>Diagnostics</h2><div class="diag" id="diag"></div>
 </aside>
 <button id="panelBtn">Tuning</button>
-<div id="hud"><div id="hearts"></div><div id="score"><small id="mult"></small></div><div id="clock">0:00</div><div id="comboBar"><i></i></div><div id="banner"></div><div id="arrows"></div></div><div id="hurtflash"></div><div id="over"><div><h1 id="overTitle">Game Over</h1><p id="overSub"></p><div class="big" id="overScore"></div><p id="overBest"></p><button id="bRetry">Play Again</button></div></div><div id="focus"><div><h1>Blob Minigore</h1><p>Click to start · <b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button, pick a hero, <b>A</b> to play.</p></div></div>`;
+<div id="hurtflash"></div><div id="pauseCard"><div><h1>Paused</h1><p><b>Start</b> / <b>Esc</b> resume · <b>B</b> quit to heroes</p><button id="bResume">Resume</button></div></div><div id="over"><div><h1 id="overTitle">Game Over</h1><p id="overSub"></p><div class="big" id="overScore"></div><p id="overBest"></p><button id="bRetry">Play Again</button></div></div><div id="focus"><div><h1>Blob Minigore</h1><p>Click to start · <b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button, pick a hero, <b>A</b> to play.</p></div></div>`;
 
 /* ------------------------------ engine ------------------------------ */
 const canvas = $('#c');
@@ -97,9 +97,10 @@ for (const t of targets) views.set(t, new DummyView(arena.group, t, stage.camera
 
 /* ------------------------------ survival run session ------------------------------ */
 const sess = createSession({ world: arena.world, bounds: ARENA_BOUNDS, rng: Math.random, hearts: 3, speed: () => tuning.get('run.speed'), pressure: () => tuning.get('run.pressure'), playerRadius: 0.5 });
-const critters = createCritters(stage.scene);
+const furries = createFurries(stage.scene, fx);
 let bestScore = parseInt(localStorage.getItem('blob.best') || '0', 10);
-let gamePaused = false, aimTarget = null;
+let gamePaused = false, fireHold = 0;
+const lock = createLock();
 
 /* ------------------------------ aiming visuals ------------------------------ */
 const aimGroup = new THREE.Group(); stage.scene.add(aimGroup);
@@ -192,18 +193,13 @@ function onHit(h) {
     const e = h.ref;
     const res = sess.hit(e, h.damage, h.dx, h.dy);
     stats.hits++; stats.damage += res.dealt; if (st) { st.hits++; st.damage += res.dealt; st.nearest = Math.min(st.nearest, h.dist); }
-    critters.splat(e.x, e.y, e.r * 1.4, critterColor(e));
-    fx.sparks(h.x, h.y, h.nx, h.ny, '#ffe9a8', 3);
-    for (let i = 0; i < 2; i++) fx.emit(h.x, 0.9, h.y, h.nx * R2(1, 3) + R2(-1, 1), R2(0.5, 2), h.ny * R2(1, 3) + R2(-1, 1), R2(0.25, 0.4), R2(0.06, 0.11), '#ffe9a8', { g: 9, op: 0.95 });
+    furries.hit(e, h.nx, h.ny);
     if (!(e.sndT > 0)) { audio.sfx.hit(0.6); e.sndT = 0.05; }
     if (res.killed) {
       stats.kills++; if (st) st.kills++;
-      haptics.kill(); pauseT = Math.max(pauseT, P.hitPause);
-      audio.sfx.pop();
-      if (res.gain > 0 && P.numbers) fx.number(e.x, 2.6, e.y, '+' + res.gain, res.gain >= 40 ? '#ffd23f' : '#ffffff');
-      fx.ring(e.x, e.y, 2.6, '#ffd23f', 0.5);
-      for (let i = 0; i < 20; i++) { const a = Math.random() * 6.28, sp = R2(2, 6); fx.emit(e.x, 1, e.y, Math.cos(a) * sp, R2(2, 5), Math.sin(a) * sp, R2(0.4, 0.8), R2(0.07, 0.14), ['#ffd166','#ff8fc7','#b48cf0','#4ad6c8'][i & 3], { g: 13, op: 1 }); }
-      if (res.children?.length) { for (const ch of res.children) critters.warn(ch.x, ch.y, 0.1, 0.5); }
+      haptics.kill(); pauseT = Math.max(pauseT, P.hitPause * (e.tier === 2 ? 2 : 1)); audio.sfx.pop();
+      furries.die(e, h.dx, h.dy);
+      if (e.tier === 2) shake = Math.max(shake, 0.35);
     }
     return;
   }
@@ -238,6 +234,7 @@ function simStep(h) {
   const rad = heroes[selected].radius;
   const impact = resolveWorld(player, v, rad, arena.world);
   for (const t of targets) if (t.alive) circleVsCircle(player, v, rad, t);               // dummies are solid
+  if (mode === 'run') { for (const e of sess.crowd.list) if (e.alive && e.state !== 'emerge') circleVsCircle(player, v, rad, e); resolveWorld(player, v, rad, arena.world); }   // furries are solid too: a crowd can box you in
   if (impact > 2.5 && player.impact <= 0) { player.impact = 0.15; fx.dust(player.x, player.y, -v.x, -v.y, Math.min(1, impact / 7)); shake = Math.max(shake, Math.min(0.25, impact * 0.025)); }
   player.impact -= h; player.vx = v.x + player.kb.x; player.vy = v.y + player.kb.y; player.speed = Math.hypot(player.vx, player.vy);
 
@@ -248,8 +245,12 @@ function simStep(h) {
   let helped;
   if (mode === 'run') {
     const override = tuning.get('run.override') > 0.5 ? explicit : { x: 0, y: 0 };
-    helped = runAim(player, override, snap.move, snap.fire, sess.crowd.list, arena.world, { range: tuning.get('run.range'), lead: tuning.get('run.lead'), pelletSpeed: P.pelletSpeed, prev: aimTarget, sticky: 0.2 });
-    aimTarget = helped.target;
+    fireHold = snap.fire ? 0.35 : Math.max(0, fireHold - h);                 // keep facing the target briefly between trigger pulls
+    helped = runAim(player, override, snap.move, snap.fire || fireHold > 0, sess.crowd.list, arena.world, { range: tuning.get('run.range'), lead: tuning.get('run.lead'), pelletSpeed: P.pelletSpeed, lock, dt: h });
+    if (helped.aiming && helped.source !== 'explicit') {
+      const from = player.hasAim ? { x: player.aimX, y: player.aimY } : (player.speed > 0.5 ? { x: player.vx / player.speed, y: player.vy / player.speed } : { x: player.aimX, y: player.aimY });
+      const r = turnToward(from, helped, 30, h); helped = { ...helped, x: r.x, y: r.y };
+    }
   } else {
     helped = chooseAim(player, explicit, snap.move, snap.fire, targets, arena.world, { mode: snap.mouseAim ? 'manual' : P.assistMode, coneDeg: P.assistCone, strength: P.assistStrength, range: P.range + 3 });
   }
@@ -272,14 +273,14 @@ function simStep(h) {
   if (mode === 'run') {
     const events = sess.step(h, { x: player.x, y: player.y, vx: player.v.x, vy: player.v.y, r: heroes[selected].radius });
     for (const ev of events) {
-      if (ev.type === 'telegraph') { critters.warn(ev.x, ev.y, ev.delay, ev.kind === 'zip' ? 1.1 : 0.85); audio.sfx.warn?.(); }
+      if (ev.type === 'telegraph') { furries.warn(ev.x, ev.y, ev.delay, tierOf(ev.kind, ev.tier).h); }
       else if (ev.type === 'spawn') { audio.sfx.spawn?.(); }
-      else if (ev.type === 'swarm') { $$('#banner')?.classList.add('on'); setTimeout(() => $$('#banner')?.classList.remove('on'), 1600); audio.sfx.swarm?.(); haptics.swarm?.(); }
+      else if (ev.type === 'swarm') { audio.sfx.swarm?.(); haptics.swarm?.(); }
       else if (ev.type === 'hurt') {
-        player.kb.x += ev.enemy.vx * 0.5; player.kb.y += ev.enemy.vy * 0.5;
+        { const dx = player.x - ev.enemy.x, dy = player.y - ev.enemy.y, d = Math.hypot(dx, dy) || 1, f = 4 + ev.enemy.r * 4; player.kb.x += dx / d * f; player.kb.y += dy / d * f; }
         shake = Math.max(shake, 0.3); haptics.hurt?.(); audio.sfx.hurt?.();
-        const hf = document.getElementById('hurtflash'); if (hf) { hf.classList.add('on'); setTimeout(() => hf.classList.remove('on'), 50); }
-        updateHeartsHud();
+        const hf = $('#hurtflash'); hf.classList.add('on'); setTimeout(() => hf.classList.remove('on'), 60);
+        document.body.classList.toggle('low-hp', sess.run.hp === 1);
       }
       else if (ev.type === 'dead') { onGameOver(); }
     }
@@ -325,18 +326,26 @@ function updateModeButton() { $('#bMode').textContent = mode === 'compare' ? `Pl
 function setMode(m) {
   mode = m; gamePaused = false; updateModeButton();
   const inArena = m === 'play' || m === 'run';
-  arena.setVisible(inArena); showGroup.visible = m === 'compare'; aimGroup.visible = cross.visible = inArena; tracer.visible = inArena;
+  arena.setVisible(inArena); arena.startPad.visible = m === 'play'; showGroup.visible = m === 'compare'; aimGroup.visible = cross.visible = m === 'play'; tracer.visible = inArena;
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
   if (inArena) { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
-  if (m === 'run') { sess.reset(tuning.get('run.hearts')|0 || 3); aimTarget = null; critters.clear(); critters.setVisible(true); document.getElementById('over').classList.remove('on'); updateHeartsHud(); updateScoreHud(); }
-  else { critters.setVisible(false); sess.crowd.clear(); }
+  if (m === 'run') startRun();
+  else { furries.setVisible(false); furries.clear(); sess.crowd.clear(); lock.target = null; }
   heroes.forEach((h, k) => { if (m === 'compare') h.root.position.set(SHOW.x + (k - 1) * 4.6, 0, SHOW.z); });
   $('#panel').classList.toggle('collapsed', m === 'compare' || innerWidth < 900);
   $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = inArena ? 'flex' : 'none';
   document.body.classList.toggle('mode-compare', m === 'compare');
-  document.body.classList.toggle('mode-run', m === 'run');
+  document.body.classList.toggle('mode-run', m === 'run'); if (m !== 'run') document.body.classList.remove('paused', 'low-hp');
   updateHint();
 }
+/** a fresh survival run: full hearts, empty arena, hero back on the spawn */
+function startRun() {
+  sess.reset(tuning.get('run.hearts') | 0 || 3); lock.target = null; fireHold = 0; gamePaused = false;
+  furries.clear(); furries.setVisible(true); gun.reset(); pellets.clear();
+  player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; player.hasAim = false;
+  $('#over').classList.remove('on'); document.body.classList.remove('paused', 'low-hp');
+}
+function setPaused(p) { gamePaused = p; document.body.classList.toggle('paused', p && mode === 'run'); }
 function updateHint() {
   $('#hint').innerHTML = mode === 'compare'
     ? '<b>1</b><b>2</b><b>3</b> choose · <b>Enter</b> or Play button to run. <b>Training</b> for the range.<br>Controller: <b>D-pad</b>/<b>LB</b><b>RB</b> choose · <b>A</b> play · <b>Y</b> training range.'
@@ -351,7 +360,8 @@ addEventListener('keydown', e => {
   else if (e.code === 'KeyC') setMode(mode === 'compare' ? 'play' : 'compare');
   else if (e.code === 'Enter' && mode === 'compare') setMode('run');
   else if (e.code === 'Enter' && mode === 'play') setMode('run');
-  else if ((e.code === 'Escape' || e.code === 'KeyP') && mode === 'run') gamePaused = !gamePaused;
+  else if ((e.code === 'Escape' || e.code === 'KeyP') && mode === 'run' && !sess.run.over) setPaused(!gamePaused);
+  else if (e.code === 'Enter' && mode === 'run' && sess.run.over) startRun();
   $('#focus').classList.add('off');
 });
 const startFocus = () => { audio.unlock(); $('#focus').classList.add('off'); canvas.focus(); };
@@ -367,9 +377,9 @@ function menuStep() {
     else if (c.type === 'play') setMode('run');
     else if (c.type === 'range') setMode('play');
     else if (c.type === 'compare') setMode('compare');
-    else if (c.type === 'retry') { sess.reset(tuning.get('run.hearts')|0 || 3); aimTarget = null; critters.clear(); critters.setVisible(true); document.getElementById('over').classList.remove('on'); gamePaused = false; }
-    else if (c.type === 'pause') gamePaused = true;
-    else if (c.type === 'resume') gamePaused = false;
+    else if (c.type === 'retry') startRun();
+    else if (c.type === 'pause') setPaused(true);
+    else if (c.type === 'resume') setPaused(false);
   }
 }
 
@@ -455,42 +465,6 @@ function updateAmmoHud() {
   $('#ammo').classList.toggle('reloading', gun.reloading);
 }
 
-/* ------------------------------ HUD helpers ------------------------------ */
-function updateHeartsHud() {
-  const el = document.getElementById('hearts'); if (!el) return;
-  const max = sess.run.maxHp, cur = sess.run.hp;
-  el.innerHTML = Array.from({ length: max }, (_, i) => `<i class="${i < cur ? '' : 'off'}">♥</i>`).join('');
-}
-function updateScoreHud() {
-  const el = document.getElementById('score'), ml = document.getElementById('mult'); if (!el) return;
-  el.firstChild.textContent = sess.run.score;
-  if (ml) ml.textContent = sess.run.mult > 1 ? `×${sess.run.mult}` : '';
-  const cb = document.getElementById('comboBar'); if (cb) {
-    const bar = cb.firstElementChild, frac = sess.run.comboT > 0 ? sess.run.comboT / 2.5 : 0;
-    bar.style.width = (frac * 100) + '%'; cb.style.opacity = frac > 0 ? '1' : '0';
-  }
-  const ck = document.getElementById('clock'); if (ck) {
-    const t = sess.run.time, m = Math.floor(t / 60), s = Math.floor(t % 60); ck.textContent = m + ':' + String(s).padStart(2, '0');
-  }
-}
-function updateArrowIndicators() {
-  const el = document.getElementById('arrows'); if (!el || mode !== 'run') return;
-  const W = window.innerWidth, H = window.innerHeight, cx = W / 2, cy = H / 2, margin = 36;
-  const list = sess.crowd.list; let idx = 0;
-  for (const e of list) {
-    if (!e.alive) continue;
-    const v4 = new THREE.Vector4(e.x, 0, e.y, 1).applyMatrix4(stage.camera.matrixWorldInverse).applyMatrix4(stage.camera.projectionMatrix);
-    const sx = (v4.x / v4.w * 0.5 + 0.5) * W, sy = (-v4.y / v4.w * 0.5 + 0.5) * H;
-    const onScreen = sx > 0 && sx < W && sy > 0 && sy < H && v4.w > 0;
-    if (onScreen) continue;
-    let arr = el.children[idx]; if (!arr) { arr = document.createElement('i'); el.appendChild(arr); } idx++;
-    const dx = sx - cx, dy = sy - cy, ang = Math.atan2(dy, dx), len = Math.min(W, H) * 0.5 - margin;
-    const ax = cx + Math.cos(ang) * len, ay = cy + Math.sin(ang) * len;
-    arr.style.cssText = `display:block;left:${ax}px;top:${ay}px;transform:rotate(${ang + Math.PI/2}rad)`;
-    if (idx >= 24) break;
-  }
-  while (el.children.length > idx) el.lastElementChild.remove();
-}
 function onGameOver() {
   const best = bestScore; if (sess.run.score > bestScore) { bestScore = sess.run.score; localStorage.setItem('blob.best', bestScore); }
   const ov = document.getElementById('over'); if (!ov) return; ov.classList.add('on');
@@ -498,9 +472,9 @@ function onGameOver() {
   const sub = document.getElementById('overSub'); if (sub) sub.textContent = `Survived ${(sess.run.time / 60 | 0)}:${String(sess.run.time % 60 | 0).padStart(2,'0')} · ${sess.run.kills} kills`;
   const sc = document.getElementById('overScore'); if (sc) sc.textContent = sess.run.score;
   const bs = document.getElementById('overBest'); if (bs) bs.textContent = sess.run.score > best ? 'New Best!' : `Best: ${bestScore}`;
-  audio.sfx.over?.(); haptics.hurt?.();
+  audio.sfx.over?.(); haptics.hurt?.(); document.body.classList.remove('low-hp');
 }
-document.getElementById('bRetry')?.addEventListener('click', () => { sess.reset(tuning.get('run.hearts')|0 || 3); aimTarget = null; critters.clear(); critters.setVisible(true); document.getElementById('over').classList.remove('on'); gamePaused = false; gun.reset(); pellets.clear(); player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; });
+$('#bRetry').onclick = startRun; $('#bResume').onclick = () => setPaused(false);
 /* ------------------------------ camera ------------------------------ */
 const focus = new THREE.Vector3(SHOW.x, 0, SHOW.z), _t = new THREE.Vector3();
 function updateCamera(dt) {
@@ -545,15 +519,16 @@ function frame(now) {
     const h = heroes[selected];
     h.update(dtv, { x: player.x, y: player.y, vx: player.vx, vy: player.vy, speed: player.speed, aimYaw: player.hasAim ? Math.atan2(player.aimX, player.aimY) : null, reload: gun.progress, spent: [gun.state.spent[1], gun.state.spent[0]] }, P);
     // aim cone shows spread, range, and the full-damage zone
-    aimGroup.visible = player.hasAim || snap.fire; aimGroup.position.set(player.x, 0, player.y); aimGroup.rotation.y = Math.atan2(player.aimX, player.aimY);
+    aimGroup.visible = mode === 'play' && (player.hasAim || snap.fire); aimGroup.position.set(player.x, 0, player.y); aimGroup.rotation.y = Math.atan2(player.aimX, player.aimY);
     coneOuter.mesh.position.z = coneInner.mesh.position.z = muzzleReach(); coneOuter.set(P.spread, P.range); coneInner.set(P.spread, P.falloffStart);
-    cross.visible = snap.mouseAim; cross.position.set(input.mouse.x, 0.06, input.mouse.y);
+    cross.visible = mode === 'play' && snap.mouseAim; cross.position.set(input.mouse.x, 0.06, input.mouse.y);
     const cd = Math.hypot(input.mouse.x - player.x, input.mouse.y - player.y); cross.scale.setScalar(clamp(Math.tan(P.spread) * Math.max(0, cd - muzzleReach()), 0.45, 4) / 0.36);
     updatePelletVisuals();
     updateAmmoHud();
+    h.root.visible = !(mode === 'run' && sess.run.invuln > 0 && !sess.run.over && (clock * 14 | 0) % 2);   // blink while you cannot be hurt
   }
   for (const t of targets) views.get(t).update(dtv, clock);
-  if (mode === 'run') { critters.update(sess.crowd.list, clock); critters.updateWarns(dt); critters.updateSplats(dt); updateScoreHud(); updateArrowIndicators(); }
+  if (mode === 'run') { const r = furries.update(sess.crowd.list, clock, dt, player); shake = Math.max(shake, r.shake); furries.updateWarns(dt, clock); furries.updateSplats(dt); }
   fx.update(dt); updateCamera(Math.max(realDt, 1e-4)); stage.render();
   if ((now / 100 | 0) !== ((now - raw) / 100 | 0)) updateDiag();
   requestAnimationFrame(frame);
@@ -582,4 +557,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps, sess, critters, bestScore: () => bestScore };
+window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps, sess, furries, lock, startRun, bestScore: () => bestScore };

@@ -2,7 +2,7 @@
 // It exists so difficulty can be tuned from data: how long does a careless player last, a decent one, a good one?
 //   node tools/bot.mjs [seeds=6] [maxSeconds=300]
 import { createSession } from '../src/game/run.js';
-import { runAim } from '../src/game/autoaim.js';
+import { runAim, createLock } from '../src/game/autoaim.js';
 import { buildWorld, BOUNDS, SPAWN } from '../src/game/layout.js';
 import { createShotgun } from '../src/game/shotgun.js';
 import { PelletSim, pelletPattern } from '../src/game/pellets.js';
@@ -20,7 +20,7 @@ export function play(seed, skill, maxT = 300) {
   const sess = createSession({ world, bounds: BOUNDS, rng, hearts: 3 });
   const gun = createShotgun({ capacity: 2, interval: 0.28, reload: 0.95 }), pellets = new PelletSim();
   const pl = { x: SPAWN.x, y: SPAWN.y, vx: 0, vy: 0, r: 0.5, v: { x: 0, y: 0 } };
-  const H = 1 / 120; let prev = null, peak = 0, t = 0; const samples = {};
+  const H = 1 / 120; const lock = createLock(); let peak = 0, t = 0; const samples = {};
   const origRandom = Math.random; Math.random = rng;                         // pellet pattern uses Math.random
   try {
     for (let i = 0; i < maxT * 120 && !sess.run.over; i++, t += H) {
@@ -43,8 +43,7 @@ export function play(seed, skill, maxT = 300) {
       stepVelocity(pl.v, { x: mx, y: my, mag: Math.min(1, Math.hypot(mx, my)) }, MOVE, H);
       pl.x += pl.v.x * H; pl.y += pl.v.y * H; resolveWorld(pl, pl.v, 0.5, world); pl.vx = pl.v.x; pl.vy = pl.v.y;
       // aim + fire (R2 held whenever anything is in range)
-      const aim = runAim(pl, { x: 0, y: 0 }, { x: mx, y: my, mag: Math.hypot(mx, my) }, true, list, world, { range: 16, lead: 1, prev });
-      prev = aim.target;
+      const aim = runAim(pl, { x: 0, y: 0 }, { x: mx, y: my, mag: Math.hypot(mx, my) }, true, list, world, { range: 16, lead: 1, lock, dt: H });
       const fire = aim.aiming && aim.source === 'auto' && Math.hypot(aim.target.x - pl.x, aim.target.y - pl.y) < 13;
       for (const e of gun.update(H, { fire })) if (e.type === 'shot') {
         const id = i, muzzle = { x: pl.x + aim.x * 0.9, y: pl.y + aim.y * 0.9 };

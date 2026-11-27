@@ -134,5 +134,5 @@ export function createArena(stage) {
   for (const b of world.boxes) { const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([sx, sy]) => new THREE.Vector3(b.x + sx * b.hw, 0.08, b.y + sy * b.hh)); debug.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat)); }
   { const pts = [[B.minX, B.minY], [B.maxX, B.minY], [B.maxX, B.maxY], [B.minX, B.maxY], [B.minX, B.minY]].map(([x, y]) => new THREE.Vector3(x, 0.08, y)); debug.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat)); }
 
-  return { group, world, debug, boardMark, clearMarks, setVisible: v => { group.visible = v; } };
+  return { group, world, debug, boardMark, clearMarks, startPad: start, setVisible: v => { group.visible = v; } };
 }
