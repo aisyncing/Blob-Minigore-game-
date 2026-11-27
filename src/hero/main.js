@@ -53,7 +53,7 @@ $('#app').innerHTML = `
     <div class="actions"><button id="bDs">Connect adaptive triggers</button>
       <select id="dsLayout" title="Only matters over Bluetooth"><option value="auto">Layout: automatic</option><option value="usb">Force USB layout</option><option value="bt-a">Bluetooth layout A</option><option value="bt-b">Bluetooth layout B</option></select></div>
     <div class="hint">Rumble tests (browser vibration):</div>
-    <div class="actions"><button data-rt="barrel1">1st barrel</button><button data-rt="barrel2">2nd barrel</button><button data-rt="reload">Reload clicks</button><button data-rt="dry">Dry click</button></div>
+    <div class="actions"><button data-rt="barrel1">1st barrel</button><button data-rt="barrel2">2nd barrel</button><button data-rt="reload">Reload clicks</button><button data-rt="dry">Dry click</button><button id="bRamp">Strength ramp</button></div>
     <div class="hint">Trigger tests (hold RT while you try them, 6 seconds each):</div>
     <div class="actions"><button data-tt="first">1st barrel</button><button data-tt="second">2nd barrel</button><button data-tt="locked">Locked</button><button data-tt="kick">Buzz</button><button data-tt="off">Normal</button></div>
   </details>
@@ -365,6 +365,12 @@ $('#bRange').onclick = resetRange;
   $('#bDs').onclick = async () => { audio.unlock(); await dualsense.connect(); };
   $('#dsLayout').onchange = e => dualsense.setTransport(e.target.value);
   $('#feel').addEventListener('toggle', () => { $('#dsRumble').textContent = snap.pad.connected ? (snap.pad.rumble ? 'Browser rumble: available for this controller.' : 'Browser rumble: not available.') : 'Press a button on the controller so the browser can see it.'; });
+  $('#bRamp').onclick = () => {                      // raw strength steps, ignoring every slider: shows how the motors really respond
+    const steps = [0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1]; let i = 0; haptics.hold(0);
+    const next = () => { if (i >= steps.length) { $('#dsRumble').textContent = 'Ramp done. Which step did you first feel, and when did it stop getting stronger?'; return; }
+      const v = steps[i++]; $('#dsRumble').textContent = `Step ${i} of ${steps.length}: ${Math.round(v * 100)}%`; if (!dualsense.motors(v, v, 600)) snap.pad.rumble?.(v, v, 600); setTimeout(next, 1100); };
+    next();
+  };
   for (const b of document.querySelectorAll('[data-rt]')) b.onclick = () => {
     const k = b.dataset.rt; if (k === 'reload') { [['eject', 0], ['grab', 220], ['insert', 520], ['close', 820]].forEach(([n, t]) => setTimeout(() => haptics.reload(n), t)); } else if (k === 'dry') haptics.play('dry'); else haptics.play(k);
     $('#dsRumble').textContent = snap.pad.connected && snap.pad.rumble ? 'Sent to the controller.' : 'No controller rumble available: press a button on the controller first.';
