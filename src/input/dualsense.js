@@ -57,12 +57,16 @@ export function crc32(bytes, seed = null) {                            // standa
 }
 
 /**
- * One output report that sets the triggers and nothing else (the motors are left to the Gamepad API, so rumble keeps working).
+ * One output report that sets the triggers, and the two motors when `motor` is given.
  * @param transport 'usb' | 'bt-a' | 'bt-b'
  * @returns { id, data (what WebHID sendReport wants: the bytes AFTER the report id), full (the whole report including the id) }
  */
-export function buildReport({ transport = 'usb', right = null, left = null, seq = 0 } = {}) {
+export function buildReport({ transport = 'usb', right = null, left = null, seq = 0, motor = null } = {}) {
   const body = new Uint8Array(47);                                     // the common body, offsets as in the Linux driver
+  if (motor) {                                                         // body[2] = right (light) motor, body[3] = left (heavy) motor, as in the Linux driver
+    const u8 = v => Math.min(255, Math.max(0, Math.round((Number.isFinite(v) ? v : 0) * 255)));
+    body[0] |= 0x03; body[2] = u8(motor.weak); body[3] = u8(motor.strong); body[38] |= 0x04;   // 0x01 + 0x02: apply rumble; valid_flag2 0x04: newer-firmware rumble
+  }
   if (right) { body[0] |= FLAG_RIGHT; body.set(encodeTrigger(right), 10); }
   if (left) { body[0] |= FLAG_LEFT; body.set(encodeTrigger(left), 21); }
   if (transport === 'usb') {
@@ -84,7 +88,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  * Usage: connect() from a click; then set({ right, left }) any time. set() only sends when something changed.
  */
 export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navigator.hid : undefined), now = () => performance.now(), onStatus = () => {} } = {}) {
-  const st = { device: null, ids: {}, working: null, dead: false, forced: 'auto', seq: 0, last: { right: null, left: null }, lastSent: 0, timer: null, pending: null, errors: 0 };
+  const st = { device: null, ids: {}, working: null, dead: false, forced: 'auto', seq: 0, last: { right: null, left: null }, lastSent: 0, timer: null, pending: null, errors: 0, motor: { strong: 0, weak: 0 }, motorUsed: false, motorTimer: null };
   const supported = !!hid;
   const status = t => onStatus(t, st);
 
@@ -118,7 +122,7 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
     if (!st.device) return false;
     const tryList = st.working ? [st.working] : candidates(), errs = [];
     for (const t of tryList) {
-      const r = buildReport({ transport: t, right, left, seq: st.seq++ }), want = st.ids[r.id];
+      const r = buildReport({ transport: t, right, left, seq: st.seq++, motor: st.motorUsed ? st.motor : null }), want = st.ids[r.id];
       let data = r.data; if (want && want !== data.length) { const d = new Uint8Array(want); d.set(data.subarray(0, Math.min(want, data.length))); data = d; }   // match the size the descriptor declares
       try { await st.device.sendReport(r.id, data); st.lastSent = now(); if (st.working !== t) { st.working = t; status(`Trigger commands accepted (layout ${t}). If you feel nothing, hold RT and press a Trigger test.`); } return true; }
       catch (e) { errs.push(`${t}: ${e?.message || e}`); }
@@ -165,8 +169,20 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
       const go = () => { st.timer = null; const w = st.pending; st.pending = null; if (!w) return; st.last = w; st.lastSent = now(); raw(w.right, w.left); };   // stamped at send START, so a burst in one tick is coalesced
       if (wait === 0) go(); else if (!st.timer) st.timer = setTimeout(go, wait);
     },
+    /** Rumble the motors over the same connection (reliable over Bluetooth, where the browser's own rumble often is not).
+     *  @returns true when the command was taken; false means "use the browser's rumble instead". The motors stop by themselves after `ms`. */
+    motors(strong, weak, ms = 60) {
+      if (!st.device || st.dead) return false;
+      st.motorUsed = true; st.motor = { strong, weak }; if (st.motorTimer) clearTimeout(st.motorTimer);
+      st.motorTimer = (strong > 0 || weak > 0) ? setTimeout(() => api.motors(0, 0), ms) : null;
+      st.pending = { right: st.last.right, left: st.last.left };
+      const wait = Math.max(0, 16 - (now() - st.lastSent));
+      const go = () => { st.timer = null; const w = st.pending; st.pending = null; if (!w) return; st.lastSent = now(); raw(w.right, w.left); };
+      if (wait === 0) { if (st.timer) { clearTimeout(st.timer); st.timer = null; } go(); } else if (!st.timer) st.timer = setTimeout(go, wait);
+      return true;
+    },
     /** Put both triggers back to normal (menus, leaving the page). */
-    release() { if (!st.device) return; if (st.timer) { clearTimeout(st.timer); st.timer = null; } st.pending = null; st.last = { right: OFF, left: OFF }; return raw(OFF, OFF); },
+    release() { if (!st.device) return; if (st.timer) { clearTimeout(st.timer); st.timer = null; } st.pending = null; st.last = { right: OFF, left: OFF }; st.motor = { strong: 0, weak: 0 }; if (st.motorTimer) { clearTimeout(st.motorTimer); st.motorTimer = null; } return raw(OFF, OFF); },
   };
   if (supported && hid.addEventListener) hid.addEventListener('disconnect', e => { if (st.device && e.device === st.device) { st.device = null; status('The controller disconnected.'); } });
   return api;

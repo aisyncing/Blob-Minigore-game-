@@ -195,3 +195,22 @@ test('smart rumble: footsteps speed up with speed, stay quiet when standing, and
 test('smart rumble: wall bumps need a real impact and are rate limited', () => {
   const r = rig(); assert.equal(r.h.bump(1), false); assert.equal(r.h.bump(6), true); assert.equal(r.h.bump(6), false); r.advance(300); assert.equal(r.h.bump(6), true);
 });
+
+test('motors over the DualSense link: flags, byte positions, and the BT CRC still valid', () => {
+  const r = buildReport({ transport: 'usb', motor: { strong: 1, weak: 0.5 } });
+  assert.equal(r.full[1] & 0x03, 0x03); assert.equal(r.full[3], 128, 'weak = right motor byte'); assert.equal(r.full[4], 255, 'strong = left motor byte'); assert.equal(r.full[39] & 0x04, 0x04);
+  assert.equal(buildReport({ transport: 'usb', right: TRIGGER_FEEL.first }).full[1] & 0x03, 0, 'no motor given = motors untouched');
+  const b = buildReport({ transport: 'bt-a', motor: { strong: 0.2, weak: 0.2 } }).full; assert.equal(b.length, 78);
+});
+test('motors() sends, stops by itself, and refuses when there is no link', async () => {
+  const sent = [], dev = { opened: true, collections: [], sendReport: async (id, d) => { sent.push([id, d[2], d[3]]); }, vendorId: 0x054c, productId: 0x0ce6 };
+  let t = 0; const timers = []; const realST = globalThis.setTimeout; globalThis.setTimeout = (f, ms) => { timers.push({ f, ms }); return timers.length; }; globalThis.clearTimeout = () => {};
+  try {
+    const ds = createDualSense({ hid: { getDevices: async () => [dev], addEventListener() {} }, now: () => (t += 20) });
+    assert.equal(ds.motors(1, 1, 50), false, 'not connected: caller falls back to browser rumble');
+    await ds.autoConnect(); assert.equal(ds.motors(0.8, 0.4, 50), true); await Promise.resolve();
+    assert.ok(sent.some(s => s[2] === 204 && s[1] === 102), 'motors reach the controller');
+    timers.filter(x => x.ms === 50).forEach(x => x.f()); await Promise.resolve(); await new Promise(r => realST(r, 0));
+    assert.deepEqual(sent.at(-1).slice(1), [0, 0], 'stopped after ms');
+  } finally { globalThis.setTimeout = realST; }
+});

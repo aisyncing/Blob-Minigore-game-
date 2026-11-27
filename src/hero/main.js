@@ -144,7 +144,7 @@ const snap = input.snap;
 /* ------------------------------ controller feel: rumble patterns + PS5 adaptive triggers ------------------------------ */
 const dualsense = createDualSense({ onStatus: t => { const el = document.querySelector('#dsStatus'); if (el) el.textContent = t; } });
 const haptics = createHaptics({
-  rumble: (strong, weak, ms) => { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(strong, weak, ms); },      // always the live pad; only for a controller player
+  rumble: (strong, weak, ms) => { if (!P.rumble || snap.source !== 'controller') return; if (!dualsense.motors(strong, weak, ms)) snap.pad.rumble?.(strong, weak, ms); },   // over the DualSense link when connected (reliable on Bluetooth), else the browser's rumble      // always the live pad; only for a controller player
   trigger: dualsense, scale: () => tuning.get('fx.rumbleScale'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
 });
 const smart = () => tuning.get('fx.smartRumble') > 0.5;
