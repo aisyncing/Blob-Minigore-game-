@@ -84,33 +84,57 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  * Usage: connect() from a click; then set({ right, left }) any time. set() only sends when something changed.
  */
 export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navigator.hid : undefined), now = () => performance.now(), onStatus = () => {} } = {}) {
-  const st = { device: null, transport: 'usb', forced: 'auto', seq: 0, last: { right: null, left: null }, lastSent: 0, timer: null, pending: null, errors: 0 };
+  const st = { device: null, ids: {}, working: null, dead: false, forced: 'auto', seq: 0, last: { right: null, left: null }, lastSent: 0, timer: null, pending: null, errors: 0 };
   const supported = !!hid;
   const status = t => onStatus(t, st);
 
-  function detect(dev) {                                               // Bluetooth exposes the 0x31 output report, USB the 0x02 one
-    const ids = new Set(); for (const c of dev.collections || []) for (const r of c.outputReports || []) ids.add(r.reportId);
-    return ids.has(0x31) && !ids.has(0x02) ? 'bt' : 'usb';
+  // What does this controller say it accepts? Output report ids and their sizes (in bytes, without the id), read from its HID descriptor.
+  function describe(dev) {
+    const ids = {};
+    for (const c of dev.collections || []) for (const r of c.outputReports || []) {
+      const bits = (r.items || []).reduce((n, it) => n + (it.reportSize || 0) * (it.reportCount || 0), 0);
+      ids[r.reportId] = bits ? Math.ceil(bits / 8) : null;               // null = size unknown
+    }
+    return ids;
   }
-  const transport = () => (st.forced === 'auto' ? (st.kind === 'bt' ? 'bt-a' : 'usb') : st.forced);
+  const hexId = n => '0x' + Number(n).toString(16).padStart(2, '0');
+  const listIds = ids => Object.entries(ids).map(([i, n]) => `${hexId(i)}${n ? ` (${n} bytes)` : ''}`).join(', ') || 'none';
+  const candidates = () => {                                           // layouts to try, most likely first
+    if (st.forced !== 'auto') return [st.forced];
+    const has = i => Object.prototype.hasOwnProperty.call(st.ids, i), out = [];
+    if (has(0x31)) out.push('bt-a', 'bt-b'); if (has(0x02)) out.push('usb');
+    return out.length ? out : ['usb', 'bt-a', 'bt-b'];
+  };
+  const transport = () => st.working || candidates()[0];
 
   async function attach(dev) {
     if (!dev.opened) await dev.open();
-    st.device = dev; st.kind = detect(dev); st.last = { right: null, left: null }; st.errors = 0;
-    status(`Connected: ${dev.productName || 'DualSense'} (${st.kind === 'bt' ? 'Bluetooth' : 'USB'}) · layout ${transport()}`);
+    st.device = dev; st.ids = describe(dev); st.working = null; st.dead = false; st.last = { right: null, left: null }; st.errors = 0;
+    st.kind = Object.prototype.hasOwnProperty.call(st.ids, 0x31) && !Object.prototype.hasOwnProperty.call(st.ids, 0x02) ? 'bt' : 'usb';
+    status(`Connected: ${dev.productName || 'DualSense'} (${st.kind === 'bt' ? 'Bluetooth' : 'USB'}). It accepts output reports: ${listIds(st.ids)}. Press a Trigger test to check.`);
   }
+  // Send one report. In automatic mode, layouts are tried in turn until the controller accepts one, and that one is remembered.
   async function raw(right, left) {
     if (!st.device) return false;
-    const r = buildReport({ transport: transport(), right, left, seq: st.seq++ });
-    try { await st.device.sendReport(r.id, r.data); st.lastSent = now(); return true; }
-    catch (e) { st.errors++; status('Could not send to the controller: ' + (e?.message || e)); return false; }
+    const tryList = st.working ? [st.working] : candidates(), errs = [];
+    for (const t of tryList) {
+      const r = buildReport({ transport: t, right, left, seq: st.seq++ }), want = st.ids[r.id];
+      let data = r.data; if (want && want !== data.length) { const d = new Uint8Array(want); d.set(data.subarray(0, Math.min(want, data.length))); data = d; }   // match the size the descriptor declares
+      try { await st.device.sendReport(r.id, data); st.lastSent = now(); if (st.working !== t) { st.working = t; status(`Trigger commands accepted (layout ${t}). If you feel nothing, hold RT and press a Trigger test.`); } return true; }
+      catch (e) { errs.push(`${t}: ${e?.message || e}`); }
+    }
+    st.errors++; st.dead = true;                                         // stop re-sending until the player picks a layout or presses a test
+    status(`The controller rejected every trigger message (${errs.join('; ')}). It reports output reports: ${listIds(st.ids)}. Try the layout menu, or a USB cable.`);
+    return false;
   }
   const OFF = { effect: 'off' };
 
   const api = {
     supported, state: st,
     get connected() { return !!st.device; },
-    setTransport(t) { st.forced = t; st.last = { right: null, left: null }; if (st.device) status(`Layout ${transport()}`); },
+    setTransport(t) { st.forced = t; st.working = null; st.dead = false; st.last = { right: null, left: null }; if (st.device) status(`Layout: ${t === 'auto' ? 'automatic' : t}`); },
+    /** Forget a failure so the next set() tries again (the test buttons call this). */
+    retry() { st.dead = false; st.last = { right: null, left: null }; },
     async connect() {                                                  // must be called from a click
       if (!supported) { status('This browser has no WebHID. Use Chrome or Edge.'); return false; }
       try {
@@ -133,7 +157,7 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
     async disconnect() { if (!st.device) return; await raw(OFF, OFF); try { await st.device.close(); } catch { /* ignore */ } st.device = null; status('Disconnected.'); },
     /** Ask for these trigger effects (null = leave that trigger alone). Sends only on change, at most ~60 per second. */
     set({ right = undefined, left = undefined } = {}) {
-      if (!st.device) return;
+      if (!st.device || st.dead) return;
       const want = { right: right === undefined ? st.last.right : right, left: left === undefined ? st.last.left : left };
       if (same(want, st.last) && !st.pending) return;
       st.pending = want;

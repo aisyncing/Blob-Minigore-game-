@@ -19,7 +19,7 @@ assert.equal(await page.evaluate(() => __hero.state().mode), 'play');
 // connect (the page's button; the fake picker returns the simulated DualSense)
 await page.evaluate(() => { document.querySelector('#feel').open = true; document.querySelector('#bDs').click(); });
 await waitReport("r.id === 2 && r.data[0] === 0x0c");
-assert.match(await page.evaluate(() => document.querySelector('#dsStatus').textContent), /Connected.*USB/);
+assert.match(await page.evaluate(() => document.querySelector('#dsStatus').textContent), /accepted \(layout usb\)/);
 assert.equal(rBlock(await lastR()), '25 28 00 04', 'ready, first barrel: weapon wall zones 3-5, strength 5');
 const rep0 = await lastR(); assert.equal(rep0.data.length, 62, 'USB report: 62 bytes after the id'); assert.equal(rep0.data[0] & 0x03, 0, 'motors are not touched by the trigger report');
 

@@ -365,7 +365,7 @@ $('#bRange').onclick = resetRange;
   };
   for (const b of document.querySelectorAll('[data-tt]')) b.onclick = () => {
     if (!dualsense.connected) { status('Connect adaptive triggers first (button above).'); return; }
-    haptics.hold(6000); dualsense.set({ right: TRIGGER_FEEL[b.dataset.tt], left: { effect: 'off' } });
+    haptics.hold(6000); dualsense.retry(); dualsense.set({ right: TRIGGER_FEEL[b.dataset.tt], left: { effect: 'off' } });
   };
 }
 $('#bCopy').onclick = async () => {

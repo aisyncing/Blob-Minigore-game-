@@ -139,7 +139,7 @@ test('a controller allowed earlier reconnects without a click; none allowed = qu
 });
 test('failures never throw: cancelled picker, send error, unplugged, and no WebHID at all', async () => {
   const none = fakeHid([0x02], { none: true }), m1 = []; assert.equal(await createDualSense({ hid: none.hid, onStatus: m => m1.push(m) }).connect(), false); assert.match(m1.at(-1), /No controller/);
-  const bad = fakeHid([0x02], { fail: true }), m2 = []; const ds = createDualSense({ hid: bad.hid, onStatus: m => m2.push(m) }); await ds.connect(); ds.set({ right: TRIGGER_FEEL.first }); await tick(30); assert.match(m2.at(-1), /Could not send/);
+  const bad = fakeHid([0x02], { fail: true }), m2 = []; const ds = createDualSense({ hid: bad.hid, onStatus: m => m2.push(m) }); await ds.connect(); ds.set({ right: TRIGGER_FEEL.first }); await tick(30); assert.match(m2.at(-1), /rejected every trigger message.*boom/);
   const gone = fakeHid(); const g = createDualSense({ hid: gone.hid }); await g.connect(); gone.fire('disconnect', { device: gone.dev }); assert.equal(g.connected, false); g.set({ right: TRIGGER_FEEL.first });   // no throw
   const m3 = []; const nohid = createDualSense({ hid: undefined, onStatus: m => m3.push(m) }); assert.equal(nohid.supported, false); assert.equal(await nohid.connect(), false); assert.match(m3.at(-1), /WebHID/); nohid.set({}); await nohid.release();
 });
@@ -147,4 +147,31 @@ test('failures never throw: cancelled picker, send error, unplugged, and no WebH
 test('an embedded page (WebHID blocked by permissions policy) gets a clear explanation, not a raw error', async () => {
   const f = fakeHid(); f.hid.requestDevice = async () => { throw new Error("Failed to execute 'requestDevice' on 'HID': Access to the feature \"hid\" is disallowed by permissions policy."); };
   const m = []; assert.equal(await createDualSense({ hid: f.hid, onStatus: t => m.push(t) }).connect(), false); assert.match(m.at(-1), /embedded.*dist\/hero\.html/);
+});
+
+/* ---- reading the controller's own descriptor and falling back between layouts */
+const descDev = (reports, accept) => { const sent = [], tried = []; const dev = { vendorId: 0x054c, productId: 0x0ce6, productName: 'DualSense', opened: false,
+  collections: [{ outputReports: Object.entries(reports).map(([id, n]) => ({ reportId: +id, items: n ? [{ reportSize: 8, reportCount: n }] : [] })) }],
+  async open() { this.opened = true; }, async close() {}, async sendReport(id, data) { tried.push({ id, len: data.length, b0: data[0], b1: data[1] }); if (!accept(id, Uint8Array.from(data))) throw new Error('Failed to write the report.'); sent.push({ id, data: Uint8Array.from(data) }); } };
+  return { hid: { requestDevice: async () => [dev], getDevices: async () => [], addEventListener() {} }, sent, tried }; };
+test('the status shows which output reports the controller declares', async () => {
+  const f = descDev({ 0x31: 77 }, () => true), m = []; const ds = createDualSense({ hid: f.hid, onStatus: t => m.push(t) }); await ds.connect(); assert.match(m.at(-1), /Bluetooth.*0x31 \(77 bytes\)/);
+});
+test('automatic mode tries Bluetooth layout A, then B, and remembers the one the controller accepts', async () => {
+  const f = descDev({ 0x31: 77 }, (id, d) => d[0] === 0x02), m = []; const ds = createDualSense({ hid: f.hid, onStatus: t => m.push(t) }); await ds.connect();
+  ds.set({ right: TRIGGER_FEEL.first }); await tick(40);
+  assert.equal(f.tried[0].b1, 0x10, 'layout A (tag byte 0x10) was tried first'); assert.equal(f.tried[1].b0, 0x02, 'then layout B')
+  assert.equal(f.sent.length, 1); assert.equal(f.sent[0].data[0], 0x02, 'layout B accepted'); assert.match(m.at(-1), /accepted \(layout bt-b\)/);
+  const before = f.tried.length; ds.set({ right: TRIGGER_FEEL.second }); await tick(40); assert.equal(f.tried.length, before + 1, 'afterwards only the working layout is used');
+});
+test('the data length follows the size the descriptor declares', async () => {
+  const f = descDev({ 0x02: 62 }, () => true); const ds = createDualSense({ hid: f.hid }); await ds.connect(); ds.set({ right: TRIGGER_FEEL.first }); await tick(30); assert.equal(f.sent[0].data.length, 62);
+  const g = descDev({ 0x02: 47 }, () => true); const d2 = createDualSense({ hid: g.hid }); await d2.connect(); d2.set({ right: TRIGGER_FEEL.first }); await tick(30); assert.equal(g.sent[0].data.length, 47); assert.equal(g.sent[0].data[0], 0x04, 'the flags and trigger block survive the resize');
+});
+test('when nothing is accepted: one clear message listing what was tried, no spamming, and retry() tries again', async () => {
+  const f = descDev({ 0x31: 77 }, () => false), m = []; const ds = createDualSense({ hid: f.hid, onStatus: t => m.push(t) }); await ds.connect(); ds.set({ right: TRIGGER_FEEL.first }); await tick(40);
+  assert.match(m.at(-1), /rejected every trigger message \(bt-a: .*; bt-b: .*\).*0x31 \(77 bytes\)/); const n = f.tried.length;
+  for (let i = 0; i < 5; i++) ds.set({ right: { effect: 'weapon', start: 3, end: 5, strength: i + 1 } }); await tick(60); assert.equal(f.tried.length, n, 'no repeated attempts after failing');
+  ds.retry(); ds.set({ right: TRIGGER_FEEL.second }); await tick(40); assert.ok(f.tried.length > n, 'retry sends again');
+  ds.setTransport('usb'); ds.set({ right: TRIGGER_FEEL.first }); await tick(40); assert.equal(f.tried.at(-1).id, 0x02, 'a forced layout is used as chosen');
 });
