@@ -20,6 +20,9 @@ export const RUMBLE = {
   bump:    [{ at: 0, strong: 0.50, weak: 0.15, ms: 50 }, { at: 50, strong: 0.15, weak: 0.05, ms: 40 }],                                                              // running into a wall
 };
 
+/** Which of the player's volume sliders a pattern belongs to. */
+export const GROUP = { barrel1: 'shoot', barrel2: 'shoot', thud: 'shoot', pop: 'shoot', kill: 'shoot', eject: 'reload', grab: 'reload', insert: 'reload', close: 'reload', dry: 'reload', bump: 'walk' };
+
 /** Scaled, clamped copy of a pattern (scale 0..1 is the player's rumble strength). */
 export function rumblePattern(name, scale = 1) {
   const p = RUMBLE[name]; if (!p) return [];
@@ -57,13 +60,13 @@ export function triggerPlan({ mode, reloading, ammo, capacity, kick = false }) {
  * @param trigger  a createDualSense() object or null
  * @param opts     schedule/clear/now injectable for tests; scale() = rumble strength 0..1; triggersOn() = player setting
  */
-export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms) => setTimeout(f, ms), clear = id => clearTimeout(id), now = () => performance.now(), scale = () => 1, triggersOn = () => true } = {}) {
+export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms) => setTimeout(f, ms), clear = id => clearTimeout(id), now = () => performance.now(), scale = () => 1, mix = () => 1, triggersOn = () => true } = {}) {
   let timers = [], kickUntil = 0, lastDry = -1e9, holdUntil = 0, busyUntil = 0, nextStep = 0, stepSide = 0, hitN = 0, killN = 0, hitTimer = null, lastBump = -1e9;
   const cancel = () => { for (const t of timers) clear(t); timers = []; };
   function play(name, gain = 1) {                                         // a new pattern replaces whatever was still playing: the latest event is what you should feel
     const fn = typeof rumble === 'function' ? rumble : null; if (!fn) return;
     cancel(); busyUntil = now() + Math.max(0, ...rumblePattern(name, 1).map(s => s.at + s.ms));
-    for (const s of rumblePattern(name, scale() * gain)) {
+    for (const s of rumblePattern(name, scale() * gain * mix(GROUP[name] || 'shoot'))) {
       if (s.at === 0) fn(s.strong, s.weak, s.ms); else timers.push(schedule(() => fn(s.strong, s.weak, s.ms), s.at));
     }
   }
@@ -93,7 +96,7 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
       const fn = typeof rumble === 'function' ? rumble : null, t = now();
       if (!fn || !on || speed01 < 0.15) { nextStep = 0; return false; }
       if (t < busyUntil || t < nextStep) return false;
-      const k = Math.min(1, speed01), g = scale(); stepSide ^= 1;
+      const k = Math.min(1, speed01), g = scale() * mix('walk'); stepSide ^= 1;
       fn(Math.min(1, (0.06 + 0.16 * k) * g * (stepSide ? 1 : 0.7)), Math.min(1, (0.10 + 0.14 * k) * g), 32);
       nextStep = t + 440 - 200 * k; return true;
     },

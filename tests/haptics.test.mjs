@@ -214,3 +214,12 @@ test('motors() sends, stops by itself, and refuses when there is no link', async
     assert.deepEqual(sent.at(-1).slice(1), [0, 0], 'stopped after ms');
   } finally { globalThis.setTimeout = realST; }
 });
+
+test('per-group rumble sliders: each scales only its own group, on top of the overall strength', () => {
+  const m = { shoot: 1, reload: 0.5, walk: 0.25 };
+  const r = rig({ scale: () => 0.8, mix: g => m[g] });
+  r.h.shot(1, 2); r.advance(300); assert.equal(r.calls[0][0], 0.8);
+  const q = rig({ scale: () => 0.8, mix: g => m[g] }); q.h.reload('close'); q.advance(300); assert.equal(q.calls[0][0], 0.24, 'reload: 0.6 x 0.8 x 0.5');
+  const w = rig({ scale: () => 1, mix: g => m[g] }); w.h.bump(10); w.advance(200); assert.ok(w.calls[0][0] <= 0.3 + 1e-9, 'bumps follow the walking slider');
+  const z = rig({ scale: () => 1, mix: () => 0 }); assert.equal(z.h.walk(1), true); assert.deepEqual(z.calls[0].slice(0, 2), [0, 0]);
+});
