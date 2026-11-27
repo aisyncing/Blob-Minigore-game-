@@ -20,6 +20,12 @@ export const RUMBLE = {
   swarm:   [{ at: 0, strong: 0.35, weak: 0.1, ms: 120 }, { at: 220, strong: 0.35, weak: 0.1, ms: 120 }],                                              // a swarm is coming: two low thumps                                                                                                    // a small bump when a dummy pops
 };
 
+/**
+ * Shape a motor strength (0..1) for this controller. Motors do nothing below a start threshold, so a gentle tap would be lost; every non-zero
+ * strength is lifted to start at `floor` (found by the calibration) and is capped at `ceil`. Zero stays zero.
+ */
+export const shapeMotor = (v, floor = 0, ceil = 1) => { const x = Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0)); return x <= 0 ? 0 : Math.min(ceil, floor + (1 - floor) * x); };
+
 /** Which setting scales a pattern: the shot, the reload clicks, being hurt, a kill tap, or the world (swarm thumps). */
 export const rumbleCategory = (name) => (name === 'barrel1' || name === 'barrel2' || name === 'pistol' || name === 'smg' ? 'shot' : name === 'step' ? 'move' : name === 'kill' ? 'kill' : name === 'hurt' ? 'hurt' : name === 'swarm' ? 'world' : 'reload');
 

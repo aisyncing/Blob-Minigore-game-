@@ -16,7 +16,9 @@ import { Target } from '../game/targets.js';
 import { mouseAim } from '../input/process.js';
 import { createInput } from '../input/source.js';
 import { createMenuNav, menuCommands } from '../input/menu.js';
-import { createHaptics, buildFeel, rumbleCategory } from '../input/haptics.js';
+import { createHaptics, buildFeel, rumbleCategory, shapeMotor } from '../input/haptics.js';
+import { lightColor, createFlash, ledPattern, scaleColor, hexRgb, COLORS } from '../input/lights.js';
+import { createCalibration } from '../input/calibrate.js';
 import { createDualSense } from '../input/dualsense.js';
 import { DEFS, PRESETS, tuning } from '../tuning.js';
 import { DESIGNS } from './designs.js';
@@ -52,7 +54,10 @@ $('#app').innerHTML = `
   <div id="pauseHead"><h2>Paused</h2>
     <div class="actions"><button id="bResume" class="primary">Resume</button><button id="bQuit">Quit to heroes</button></div>
     <div class="hint pad-hint"><b>D-pad</b> or left stick: move · <b>◀ ▶</b> change · <b>A</b> press · <b>Start</b> or <b>B</b> resume</div></div>
-    <details id="feel" open><summary>Controller: vibration and triggers</summary>
+    <details id="feel" open><summary>Controller: vibration, triggers and lights</summary>
+    <div class="actions"><button id="bCalib" class="primary">Calibrate this controller</button></div>
+    <div id="calibBox" class="hint calib" hidden><b id="calibTitle"></b><span id="calibHint"></span><div class="calib-bar"><i></i></div><button id="bCalibA">That is it (A)</button></div>
+    <div class="hint" id="dsInfo"></div>
     <div id="feelSliders"></div>
     <div class="hint" id="dsStatus"></div>
     <div class="hint" id="dsRumble"></div>
@@ -172,13 +177,73 @@ const snap = input.snap;
 
 /* ------------------------------ controller feel: rumble patterns + PS5 adaptive triggers ------------------------------ */
 const dualsense = createDualSense({ onStatus: t => { const el = document.querySelector('#dsStatus'); if (el) el.textContent = t; } });
+/** Vibration goes through the controller's own motors (WebHID) when it is connected that way, because browsers often do not rumble a DualSense; otherwise through the browser. */
+const rumbleRoute = () => { const v = tuning.get('pad.rumbleVia') | 0; return v === 2 ? 'browser' : v === 1 ? 'hid' : dualsense.usable ? 'hid' : 'browser'; };
+function sendRumble(heavy, light, ms) {
+  if (rumbleRoute() === 'hid' && dualsense.rumble(heavy, light, ms)) return 'hid';
+  snap.pad.rumble?.(heavy, light, ms); return 'browser';
+}
 const RUMBLE_KEY = { shot: 'fx.rumbleShot', reload: 'fx.rumbleReload', hurt: 'fx.rumbleHurt', kill: 'fx.rumbleKill', world: 'fx.rumbleWorld', move: 'fx.rumbleMove' };
 const haptics = createHaptics({
-  rumble: (strong, weak, ms) => { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(strong, weak, ms); },      // always the live pad; only for a controller player
+  rumble: (strong, weak, ms) => { if (P.rumble && snap.source === 'controller') sendRumble(shapeMotor(strong, tuning.get('pad.floor'), tuning.get('pad.ceil')), shapeMotor(weak, tuning.get('pad.floor'), tuning.get('pad.ceil')), ms); },
   trigger: dualsense, triggersOn: () => tuning.get('fx.triggers') > 0.5, feel: () => feel,
   scale: name => tuning.get('fx.rumbleScale') * tuning.get(RUMBLE_KEY[rumbleCategory(name)]),         // overall strength x the strength of this kind of event
 });
-const releaseTriggers = () => dualsense.release();                              // never leave the triggers stiff when the page goes away
+/* ------------------------------ controller lights ------------------------------ */
+const flash = createFlash(); let lightT = 0, lastLightKey = '', lastLightAt = -1e9, lastLeds = -1, lightsWereOn = true;
+const lightCue = { hit: () => flash.cue(COLORS.white, 0.5), tick: () => flash.cue(COLORS.cyan, 0.35), wave: () => flash.cue(COLORS.gold, 0.8), weapon: () => flash.cue(COLORS.orange, 1.0) };
+function updateLights(dt) {
+  if (!dualsense.usable || calib.state.active) return;
+  lightT += dt;
+  const on = tuning.get('pad.light') > 0.5;
+  if (!on) { if (lightsWereOn) { dualsense.setLight([0, 0, 0], 0); lightsWereOn = false; lastLightKey = ''; } }
+  else {
+    lightsWereOn = true;
+    const screen = mode === 'run' ? (sess.run.over ? 'over' : gamePaused ? 'paused' : 'play') : 'menu';
+    const c = scaleColor(lightColor({ screen, hero: hexRgb(heroes[selected].d.base), hp: sess.run.hp, max: sess.run.maxHp, t: lightT, flash: flash.step(dt) }), tuning.get('pad.lightBright'));
+    const key = c.join(','), t = performance.now();
+    if (key !== lastLightKey && t - lastLightAt >= 50) { lastLightKey = key; lastLightAt = t; dualsense.setLight(c, 0); }       // at most 20 colour changes a second
+  }
+  const mask = ledPattern({ mode: ['off', 'ammo', 'health'][tuning.get('pad.leds') | 0] || 'off', ammo: gun.state.ammo, capacity: P.capacity, reloading: gun.reloading, hp: sess.run.hp, max: sess.run.maxHp, t: lightT });
+  if (mode !== 'run' && mode !== 'play') { if (lastLeds !== 0) { lastLeds = 0; dualsense.setPlayers(0); } }
+  else if (mask !== lastLeds) { lastLeds = mask; dualsense.setPlayers(mask); }
+}
+
+/* ------------------------------ controller calibration ------------------------------ */
+const calib = createCalibration({ onDone: applyCalibration });
+function applyCalibration(r) {
+  const out = [];
+  if (r.floor !== null) { tuning.set('pad.floor', +r.floor.toFixed(2)); out.push(`weakest rumble ${(r.floor * 100) | 0}%`); }
+  if (r.triggerStrength !== null) { const s = r.triggerStrength; tuning.set('trig.strength', s); tuning.set('trig.pistol', Math.max(1, s - 1)); tuning.set('trig.strength2', Math.min(8, s + 2)); out.push(`trigger resistance ${s}`); }
+  if (r.humAmplitude !== null) { tuning.set('trig.smgBuzz', r.humAmplitude); out.push(`SMG hum ${r.humAmplitude}`); }
+  if (r.lightLevel !== null) { tuning.set('pad.lightBright', +r.lightLevel.toFixed(2)); out.push(`lightbar ${(r.lightLevel * 100) | 0}%`); }
+  endCalibration(`Calibrated: ${out.join(', ') || 'nothing felt'}. Saved.`);
+}
+/** a message in the controller info line that stays for a few seconds, then gives way to the live status */
+function infoNote(msg) { const el = $('#dsInfo'); el.dataset.msg = msg || ''; el.dataset.until = performance.now() + 8000; if (msg) el.textContent = msg; }
+function infoLine() {
+  const via = rumbleRoute() === 'hid' ? 'through the controller' : 'through the browser', b = dualsense.state.battery;
+  const conn = dualsense.usable ? `Controller connected over ${dualsense.state.kind === 'bt' ? 'Bluetooth' : 'USB'}` : 'Controller not connected for triggers and lights (press Connect below)';
+  return `${conn}. Vibration goes ${via}.${b ? ` Battery ${b.pct}%${b.charging ? ' (charging)' : b.full ? ' (full)' : ''}.` : ''}`;
+}
+function endCalibration(msg) {
+  haptics.hold(0); dualsense.release(); lastLightKey = ''; lastLeds = -1;
+  $('#calibBox').hidden = true; $('#bCalib').disabled = false; infoNote(msg);
+}
+function driveCalibration(c) {
+  const d = c.drive; haptics.hold(400);
+  if (d.type === 'motor') sendRumble(d.motor === 'heavy' ? d.level : 0, d.motor === 'light' ? d.level : 0, 140);          // raw: the point is to find where it starts
+  else if (d.type === 'trigger') { dualsense.set({ right: { effect: 'weapon', start: 3, end: 5, strength: d.strength }, left: { effect: 'off' } }); }
+  else if (d.type === 'hum') { dualsense.set({ right: { effect: 'vibration', position: 4, amplitude: d.amplitude, frequency: tuning.get('trig.smgFreq') }, left: { effect: 'off' } }); }
+  else if (d.type === 'light' && dualsense.usable) dualsense.setLight(scaleColor([255, 140, 190], d.level), 0);
+  $('#calibTitle').textContent = `${c.index + 1}/${c.count}  ${c.title}`; $('#calibHint').textContent = c.hint; $('#calibBox i').style.width = (c.level * 100).toFixed(0) + '%';
+}
+function startCalibration() {
+  if (!dualsense.usable && !snap.pad.rumble) { infoNote('Connect the controller first (the Connect button below): calibration needs to talk to its motors and triggers.'); return; }
+  audio.unlock(); calib.start(); $('#calibBox').hidden = false; $('#bCalib').disabled = true;
+}
+
+const releaseTriggers = () => { dualsense.setLight([0, 90, 255], 1); dualsense.setPlayers(null); dualsense.release(); };                              // never leave the triggers stiff when the page goes away
 addEventListener('pagehide', releaseTriggers); document.addEventListener('visibilitychange', () => { if (document.hidden) releaseTriggers(); });
 dualsense.autoConnect();                                                        // a controller allowed before reconnects by itself
 
@@ -193,7 +258,7 @@ function syncWeapon() {
 }
 function unlockWeapon(id) {
   if (runWeapon === id) return; runWeapon = id; syncWeapon();
-  hud.note(`NEW WEAPON  \u00b7  ${WEAPONS[id].name.toUpperCase()}`); audio.sfx.unlock?.(); haptics.reload('close');
+  hud.note(`NEW WEAPON  \u00b7  ${WEAPONS[id].name.toUpperCase()}`); audio.sfx.unlock?.(); haptics.reload('close'); lightCue.weapon();
 }
 // every footfall rumbles, harder the faster the hero runs (the walk cycle steps once per stride, so faster running steps more often too)
 for (const hr of heroes) hr.onStep = (side, speedF) => { if (hr === heroes[selected] && (mode === 'run' || mode === 'play') && !gamePaused) haptics.step(side, speedF); };
@@ -315,8 +380,8 @@ function simStep(h) {
   if (mode === 'run') {
     const events = sess.step(h, { x: player.x, y: player.y, vx: player.v.x, vy: player.v.y, r: heroes[selected].radius });
     for (const ev of events) {
-      if (ev.type === 'countdown') { hud.countdown(ev.n, ev.wave); audio.sfx.tick?.(ev.n); if (ev.n === 3) unlockWeapon(weaponForWave(ev.wave)); }   // the SMG arrives with the breather after wave 1
-      else if (ev.type === 'wave') { hud.wave(ev.wave); audio.sfx.wave?.(); haptics.swarm?.(); unlockWeapon(weaponForWave(ev.wave)); }
+      if (ev.type === 'countdown') { hud.countdown(ev.n, ev.wave); audio.sfx.tick?.(ev.n); lightCue.tick(); if (ev.n === 3) unlockWeapon(weaponForWave(ev.wave)); }   // the SMG arrives with the breather after wave 1
+      else if (ev.type === 'wave') { hud.wave(ev.wave); audio.sfx.wave?.(); haptics.swarm?.(); lightCue.wave(); unlockWeapon(weaponForWave(ev.wave)); }
       else if (ev.type === 'telegraph') { furries.warn(ev.x, ev.y, ev.delay, tierOf(ev.kind, ev.tier).h); }
       else if (ev.type === 'spawn') { audio.sfx.spawn?.(); }
       else if (ev.type === 'swarm') { audio.sfx.swarm?.(); haptics.swarm?.(); }
@@ -324,7 +389,7 @@ function simStep(h) {
         { const dx = player.x - ev.enemy.x, dy = player.y - ev.enemy.y, d = Math.hypot(dx, dy) || 1, f = 4 + ev.enemy.r * 4; player.kb.x += dx / d * f; player.kb.y += dy / d * f; }
         shake = Math.max(shake, 0.3); haptics.hurt?.(); audio.sfx.hurt?.();
         const hf = $('#hurtflash'); hf.classList.add('on'); setTimeout(() => hf.classList.remove('on'), 60);
-        document.body.classList.toggle('low-hp', sess.run.hp === 1);
+        document.body.classList.toggle('low-hp', sess.run.hp === 1); lightCue.hit();
         hud.setHealth(sess.run.hp, sess.run.maxHp);
         heroes[selected].setDamage(sess.run.maxHp - sess.run.hp);                      // hat flies off on the first hit, a plaster on the second
       }
@@ -395,6 +460,7 @@ function startRun() {
   hud.reset(sess.run.hp, sess.run.maxHp); panelNav.clear();
 }
 function setPaused(p) {
+  if (!p && calib.state.active) { calib.cancel(); endCalibration('Calibration cancelled.'); }
   gamePaused = p; document.body.classList.toggle('paused', p && mode === 'run');
   if (p && mode === 'run') panelNav.reset(); else panelNav.clear();
 }
@@ -424,6 +490,7 @@ const nav = createMenuNav({ directions: true }), panelNav = createPanelNav($('#p
 function menuStep() {
   const cmds = menuCommands(nav.update(snap.pad), { overlayUp: !$('#focus').classList.contains('off'), mode, selected, count: heroes.length, over: sess.run.over, paused: gamePaused });
   for (const c of cmds) {
+    if (calib.state.active) { if (c.type === 'activate') calib.confirm(); else if (c.type === 'resume') { calib.cancel(); endCalibration('Calibration cancelled.'); } continue; }
     if (c.type === 'start') startFocus();
     else if (c.type === 'choose') choose(c.index);
     else if (c.type === 'play') setMode('run');
@@ -459,7 +526,7 @@ function addControls(host, defs, openGroups = []) {
   }
   sync.forEach(f => f());
 }
-const FEEL_GROUPS = ['Vibration', 'Adaptive triggers'];
+const FEEL_GROUPS = ['Vibration', 'Adaptive triggers', 'Controller output', 'Controller lights'];
 addControls($('#sliders'), DEFS.filter(d => d.page === 'hero' && !FEEL_GROUPS.includes(d.group)), ['Survival run', 'Feedback']);
 addControls($('#feelSliders'), [...DEFS.filter(d => FEEL_GROUPS.includes(d.group)), { ...DEFS.find(d => d.key === 'trigger.press'), group: 'Adaptive triggers', label: 'Click point (fires here)' }]);
 addControls($('#inputSliders'), DEFS.filter(d => d.page === undefined && d.group !== 'Feel pad'));
@@ -552,6 +619,7 @@ function onGameOver() {
   const bs = document.getElementById('overBest'); if (bs) bs.textContent = sess.run.score > best ? 'New Best!' : `Best: ${bestScore}`;
   audio.sfx.over?.(); haptics.hurt?.(); document.body.classList.remove('low-hp');
 }
+$('#bCalib').onclick = startCalibration; $('#bCalibA').onclick = () => calib.confirm();
 $('#bRetry').onclick = startRun; $('#bResume').onclick = () => setPaused(false); $('#bQuit').onclick = () => setMode('compare'); $('#bOverBack').onclick = () => setMode('compare');
 /* ------------------------------ camera ------------------------------ */
 const focus = new THREE.Vector3(SHOW.x, 0, SHOW.z), _t = new THREE.Vector3();
@@ -587,6 +655,7 @@ function frame(now) {
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
   input.sample(now); menuStep(); readTuning();
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
+  { const c = calib.update(realDt); if (c) driveCalibration(c); updateLights(realDt); }
   haptics.update({ weapon: weaponId(), mode: mode === 'run' && (gamePaused || sess.run.over) ? 'menu' : mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
   shake = Math.max(0, shake - realDt * 3);
   const dtv = Math.max(dt, 1e-4);
@@ -623,6 +692,7 @@ function updatePelletVisuals() {
     balls.count = trails.count = n; balls.instanceMatrix.needsUpdate = trails.instanceMatrix.needsUpdate = true; if (trails.instanceColor) trails.instanceColor.needsUpdate = true;
 }
 function updateDiag() {
+  { const el = $('#dsInfo'); if (!calib.state.active) { const msg = performance.now() < +(el.dataset.until || 0) ? el.dataset.msg : ''; el.textContent = msg || infoLine(); } }
   const avg = ft.reduce((a, b) => a + b, 0) / Math.max(1, ft.length), sorted = ft.slice().sort((a, b) => a - b), p95 = sorted[Math.floor(sorted.length * 0.95)] || 0;
   const src = snap.source === 'controller' ? 'controller' : snap.mouseAim ? 'keyboard + mouse' : snap.source === 'keyboard' ? 'keyboard' : 'waiting';
   $('#chipSrc').textContent = src === 'controller' ? 'Controller' : 'Keyboard + mouse'; $('#chipSrc').classList.toggle('ok', src === 'controller');
@@ -637,4 +707,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps, sess, furries, lock, startRun, syncWeapon, unlockWeapon, weapon: () => weaponId(), W: () => W, bloom: () => bloom, bestScore: () => bestScore };
+window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps, sess, furries, lock, startRun, syncWeapon, unlockWeapon, dualsense, haptics, calib, weapon: () => weaponId(), W: () => W, bloom: () => bloom, bestScore: () => bestScore };

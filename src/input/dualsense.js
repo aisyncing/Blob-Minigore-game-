@@ -57,14 +57,23 @@ export function crc32(bytes, seed = null) {                            // standa
 }
 
 /**
- * One output report that sets the triggers and nothing else (the motors are left to the Gamepad API, so rumble keeps working).
+ * One output report. Every field is optional and only the ones you pass are switched on in the report's valid-flags, so a report that sets the
+ * lightbar leaves the triggers alone and the other way round. Layout of the common body (the same one the Linux driver and jsdualsense use):
+ *   [0] flags: 0x01 + 0x02 motors, 0x04 right trigger, 0x08 left trigger     [1] flags: 0x04 lightbar, 0x10 player LEDs
+ *   [2] right (light) motor, [3] left (heavy) motor, 0-255                    [10..20] right trigger, [21..31] left trigger
+ *   [38] flags: 0x01 LED brightness, 0x02 lightbar setup, 0x04 better rumble  [41] lightbar setup, [42] brightness (0 high, 1 mid, 2 low)
+ *   [43] player LED mask (5 bits)                                             [44..46] lightbar red, green, blue
+ * @param motors { heavy, light } 0..255      @param light [r, g, b] 0..255      @param players 5-bit mask      @param brightness 0 high, 1 medium, 2 low
  * @param transport 'usb' | 'bt-a' | 'bt-b'
  * @returns { id, data (what WebHID sendReport wants: the bytes AFTER the report id), full (the whole report including the id) }
  */
-export function buildReport({ transport = 'usb', right = null, left = null, seq = 0 } = {}) {
+export function buildReport({ transport = 'usb', right = null, left = null, motors = null, light = null, players = null, brightness = 1, seq = 0 } = {}) {
   const body = new Uint8Array(47);                                     // the common body, offsets as in the Linux driver
   if (right) { body[0] |= FLAG_RIGHT; body.set(encodeTrigger(right), 10); }
   if (left) { body[0] |= FLAG_LEFT; body.set(encodeTrigger(left), 21); }
+  if (motors) { body[0] |= 0x03; body[38] |= 0x04; body[2] = clampI(motors.light, 0, 255); body[3] = clampI(motors.heavy, 0, 255); }
+  if (light) { body[1] |= 0x04; body[38] |= 0x03; body[41] = 0; body[42] = clampI(brightness, 0, 2); body[44] = clampI(light[0], 0, 255); body[45] = clampI(light[1], 0, 255); body[46] = clampI(light[2], 0, 255); }
+  if (players !== null && players !== undefined) { body[1] |= 0x10; body[38] |= 0x01; body[43] = clampI(players, 0, 31); }
   if (transport === 'usb') {
     const full = new Uint8Array(63); full[0] = 0x02; full.set(body, 1);
     return { id: 0x02, data: full.slice(1), full };
@@ -83,10 +92,15 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  * @param hid  navigator.hid (injectable for tests)
  * Usage: connect() from a click; then set({ right, left }) any time. set() only sends when something changed.
  */
-export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navigator.hid : undefined), now = () => performance.now(), onStatus = () => {} } = {}) {
-  const st = { device: null, ids: {}, working: null, dead: false, forced: 'auto', seq: 0, last: { right: null, left: null }, lastSent: 0, timer: null, pending: null, errors: 0 };
+export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navigator.hid : undefined), now = () => performance.now(), onStatus = () => {}, schedule = (f, ms) => setTimeout(f, ms), clear = id => clearTimeout(id) } = {}) {
+  const st = { device: null, ids: {}, working: null, dead: false, forced: 'auto', seq: 0, lastSent: 0, timer: null, errors: 0, kind: 'usb', battery: null, reports: 0 };
+  const OFF = { effect: 'off' };
+  // What we want the controller to be doing, and what it was last told. A report is sent only when something in `want` differs from `sent`.
+  const want = { right: null, left: null, motors: null, light: null, players: null, brightness: 1 };
+  let sent = JSON.stringify(want), motorTimer = null;
   const supported = !!hid;
   const status = t => onStatus(t, st);
+  const clampB = v => Math.min(255, Math.max(0, Math.round(Number.isFinite(v) ? v : 0)));
 
   // What does this controller say it accepts? Output report ids and their sizes (in bytes, without the id), read from its HID descriptor.
   function describe(dev) {
@@ -105,36 +119,54 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
     if (has(0x31)) out.push('bt-a', 'bt-b'); if (has(0x02)) out.push('usb');
     return out.length ? out : ['usb', 'bt-a', 'bt-b'];
   };
-  const transport = () => st.working || candidates()[0];
 
-  async function attach(dev) {
-    if (!dev.opened) await dev.open();
-    st.device = dev; st.ids = describe(dev); st.working = null; st.dead = false; st.last = { right: null, left: null }; st.errors = 0;
-    st.kind = Object.prototype.hasOwnProperty.call(st.ids, 0x31) && !Object.prototype.hasOwnProperty.call(st.ids, 0x02) ? 'bt' : 'usb';
-    status(`Connected: ${dev.productName || 'DualSense'} (${st.kind === 'bt' ? 'Bluetooth' : 'USB'}). It accepts output reports: ${listIds(st.ids)}. Press a Trigger test to check.`);
+  // The controller's own input reports carry the battery. Offsets are the ones jsdualsense documents for the full report (USB report 0x01,
+  // Bluetooth report 0x31 has one extra header byte). Anything that does not look like a battery reading is ignored.
+  function onInput(e) {
+    const d = e.data; if (!d) return; const o = e.reportId === 0x31 ? 1 : 0, i = 52 + o;
+    if ((e.reportId !== 0x01 && e.reportId !== 0x31) || d.byteLength <= i) return;
+    const b = d.getUint8(i), level = Math.min(8, b & 0x0f), code = (b & 0xf0) >> 4;
+    if (code > 2) return;                                              // 0 discharging, 1 charging, 2 full; anything else is not a battery byte
+    st.battery = { pct: Math.round(Math.min(1, (level + (code === 2 ? 8 : 0.5)) / 8) * 100), charging: code === 1, full: code === 2 };
   }
-  // Send one report. In automatic mode, layouts are tried in turn until the controller accepts one, and that one is remembered.
-  async function raw(right, left) {
+  async function attach(dev) {
+    if (st.device && st.device !== dev) st.device.removeEventListener?.('inputreport', onInput);
+    if (!dev.opened) await dev.open();
+    st.device = dev; st.ids = describe(dev); st.working = null; st.dead = false; sent = ''; st.errors = 0; st.battery = null;
+    st.kind = Object.prototype.hasOwnProperty.call(st.ids, 0x31) && !Object.prototype.hasOwnProperty.call(st.ids, 0x02) ? 'bt' : 'usb';
+    dev.addEventListener?.('inputreport', onInput);
+    status(`Connected: ${dev.productName || 'DualSense'} (${st.kind === 'bt' ? 'Bluetooth' : 'USB'}). It accepts output reports: ${listIds(st.ids)}. Press a test to check.`);
+  }
+  // Send one report from `want`. In automatic mode, layouts are tried in turn until the controller accepts one, and that one is remembered.
+  async function raw(w) {
     if (!st.device) return false;
     const tryList = st.working ? [st.working] : candidates(), errs = [];
     for (const t of tryList) {
-      const r = buildReport({ transport: t, right, left, seq: st.seq++ }), want = st.ids[r.id];
-      let data = r.data; if (want && want !== data.length) { const d = new Uint8Array(want); d.set(data.subarray(0, Math.min(want, data.length))); data = d; }   // match the size the descriptor declares
-      try { await st.device.sendReport(r.id, data); st.lastSent = now(); if (st.working !== t) { st.working = t; status(`Trigger commands accepted (layout ${t}). If you feel nothing, hold RT and press a Trigger test.`); } return true; }
+      const r = buildReport({ transport: t, right: w.right, left: w.left, motors: w.motors, light: w.light, players: w.players, brightness: w.brightness, seq: st.seq++ }), size = st.ids[r.id];
+      let data = r.data; if (size && size !== data.length) { const d = new Uint8Array(size); d.set(data.subarray(0, Math.min(size, data.length))); data = d; }   // match the size the descriptor declares
+      try { await st.device.sendReport(r.id, data); st.lastSent = now(); st.reports++; if (st.working !== t) { st.working = t; status(`Controller commands accepted (layout ${t}). If you feel nothing, press a test.`); } return true; }
       catch (e) { errs.push(`${t}: ${e?.message || e}`); }
     }
     st.errors++; st.dead = true;                                         // stop re-sending until the player picks a layout or presses a test
-    status(`The controller rejected every trigger message (${errs.join('; ')}). It reports output reports: ${listIds(st.ids)}. Try the layout menu, or a USB cable.`);
+    status(`The controller rejected every message (${errs.join('; ')}). It reports output reports: ${listIds(st.ids)}. Try the layout menu, or a USB cable.`);
     return false;
   }
-  const OFF = { effect: 'off' };
+  // Coalesce: at most one report every 12 ms, and none if nothing changed.
+  function flush() {
+    if (!st.device || st.dead) return;
+    const now_ = JSON.stringify(want); if (now_ === sent) return;
+    const wait = Math.max(0, 12 - (now() - st.lastSent));
+    const go = () => { st.timer = null; const snapshot = JSON.stringify(want); if (snapshot === sent) return; sent = snapshot; st.lastSent = now(); raw(JSON.parse(snapshot)); };
+    if (wait === 0) go(); else if (!st.timer) st.timer = schedule(go, wait);
+  }
 
   const api = {
-    supported, state: st,
+    supported, state: st, want,
     get connected() { return !!st.device; },
-    setTransport(t) { st.forced = t; st.working = null; st.dead = false; st.last = { right: null, left: null }; if (st.device) status(`Layout: ${t === 'auto' ? 'automatic' : t}`); },
-    /** Forget a failure so the next set() tries again (the test buttons call this). */
-    retry() { st.dead = false; st.last = { right: null, left: null }; },
+    get usable() { return !!st.device && !st.dead; },
+    setTransport(t) { st.forced = t; st.working = null; st.dead = false; sent = ''; if (st.device) status(`Layout: ${t === 'auto' ? 'automatic' : t}`); },
+    /** Forget a failure so the next send tries again (the test buttons call this). */
+    retry() { st.dead = false; sent = ''; },
     async connect() {                                                  // must be called from a click
       if (!supported) { status('This browser has no WebHID. Use Chrome or Edge.'); return false; }
       try {
@@ -154,19 +186,33 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
       try { const d = (await hid.getDevices()).find(x => x.vendorId === SONY && PRODUCTS.includes(x.productId)); if (d) { await attach(d); return true; } } catch { /* ignore */ }
       return false;
     },
-    async disconnect() { if (!st.device) return; await raw(OFF, OFF); try { await st.device.close(); } catch { /* ignore */ } st.device = null; status('Disconnected.'); },
-    /** Ask for these trigger effects (null = leave that trigger alone). Sends only on change, at most ~60 per second. */
+    async disconnect() { if (!st.device) return; want.motors = { heavy: 0, light: 0 }; want.right = OFF; want.left = OFF; await raw(want); st.device.removeEventListener?.('inputreport', onInput); try { await st.device.close(); } catch { /* ignore */ } st.device = null; status('Disconnected.'); },
+
+    /** Ask for these trigger effects (undefined = leave that trigger as it is). */
     set({ right = undefined, left = undefined } = {}) {
       if (!st.device || st.dead) return;
-      const want = { right: right === undefined ? st.last.right : right, left: left === undefined ? st.last.left : left };
-      if (same(want, st.last) && !st.pending) return;
-      st.pending = want;
-      const wait = Math.max(0, 16 - (now() - st.lastSent));
-      const go = () => { st.timer = null; const w = st.pending; st.pending = null; if (!w) return; st.last = w; st.lastSent = now(); raw(w.right, w.left); };   // stamped at send START, so a burst in one tick is coalesced
-      if (wait === 0) go(); else if (!st.timer) st.timer = setTimeout(go, wait);
+      if (right !== undefined) want.right = right; if (left !== undefined) want.left = left; flush();
     },
-    /** Put both triggers back to normal (menus, leaving the page). */
-    release() { if (!st.device) return; if (st.timer) { clearTimeout(st.timer); st.timer = null; } st.pending = null; st.last = { right: OFF, left: OFF }; return raw(OFF, OFF); },
+    /**
+     * Rumble through the controller itself: heavy (left) and light (right) motor, 0..1, for `ms`. Returns false when it cannot, so the caller can fall back
+     * to the browser's own rumble. Each call replaces the one before it, like the browser's does.
+     */
+    rumble(heavy, light, ms) {
+      if (!st.device || st.dead) return false;
+      want.motors = { heavy: clampB(heavy * 255), light: clampB(light * 255) };
+      if (motorTimer) clear(motorTimer);
+      motorTimer = schedule(() => { motorTimer = null; want.motors = { heavy: 0, light: 0 }; flush(); }, Math.max(10, ms));
+      flush(); return true;
+    },
+    /** Lightbar colour [r, g, b] 0..255 (null = leave it to the controller), brightness 0 high / 1 medium / 2 low. */
+    setLight(rgb, brightness = 1) { if (!st.device || st.dead) return; want.light = rgb ? [clampB(rgb[0]), clampB(rgb[1]), clampB(rgb[2])] : null; want.brightness = brightness; flush(); },
+    /** The five white player LEDs under the touchpad as a 5-bit mask (null = leave them). */
+    setPlayers(mask) { if (!st.device || st.dead) return; want.players = mask === null ? null : mask & 31; flush(); },
+    /** Everything off: triggers normal, motors still. Lights are kept (menus keep their colour). */
+    release() {
+      if (!st.device) return; if (st.timer) { clear(st.timer); st.timer = null; } if (motorTimer) { clear(motorTimer); motorTimer = null; }
+      want.right = OFF; want.left = OFF; if (want.motors) want.motors = { heavy: 0, light: 0 }; sent = ''; return raw(want).then(ok => { if (ok) sent = JSON.stringify(want); return ok; });
+    },
   };
   if (supported && hid.addEventListener) hid.addEventListener('disconnect', e => { if (st.device && e.device === st.device) { st.device = null; status('The controller disconnected.'); } });
   return api;

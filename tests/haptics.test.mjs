@@ -139,7 +139,7 @@ test('a controller allowed earlier reconnects without a click; none allowed = qu
 });
 test('failures never throw: cancelled picker, send error, unplugged, and no WebHID at all', async () => {
   const none = fakeHid([0x02], { none: true }), m1 = []; assert.equal(await createDualSense({ hid: none.hid, onStatus: m => m1.push(m) }).connect(), false); assert.match(m1.at(-1), /No controller/);
-  const bad = fakeHid([0x02], { fail: true }), m2 = []; const ds = createDualSense({ hid: bad.hid, onStatus: m => m2.push(m) }); await ds.connect(); ds.set({ right: TRIGGER_FEEL.first }); await tick(30); assert.match(m2.at(-1), /rejected every trigger message.*boom/);
+  const bad = fakeHid([0x02], { fail: true }), m2 = []; const ds = createDualSense({ hid: bad.hid, onStatus: m => m2.push(m) }); await ds.connect(); ds.set({ right: TRIGGER_FEEL.first }); await tick(30); assert.match(m2.at(-1), /rejected every message.*boom/);
   const gone = fakeHid(); const g = createDualSense({ hid: gone.hid }); await g.connect(); gone.fire('disconnect', { device: gone.dev }); assert.equal(g.connected, false); g.set({ right: TRIGGER_FEEL.first });   // no throw
   const m3 = []; const nohid = createDualSense({ hid: undefined, onStatus: m => m3.push(m) }); assert.equal(nohid.supported, false); assert.equal(await nohid.connect(), false); assert.match(m3.at(-1), /WebHID/); nohid.set({}); await nohid.release();
 });
@@ -170,7 +170,7 @@ test('the data length follows the size the descriptor declares', async () => {
 });
 test('when nothing is accepted: one clear message listing what was tried, no spamming, and retry() tries again', async () => {
   const f = descDev({ 0x31: 77 }, () => false), m = []; const ds = createDualSense({ hid: f.hid, onStatus: t => m.push(t) }); await ds.connect(); ds.set({ right: TRIGGER_FEEL.first }); await tick(40);
-  assert.match(m.at(-1), /rejected every trigger message \(bt-a: .*; bt-b: .*\).*0x31 \(77 bytes\)/); const n = f.tried.length;
+  assert.match(m.at(-1), /rejected every message \(bt-a: .*; bt-b: .*\).*0x31 \(77 bytes\)/); const n = f.tried.length;
   for (let i = 0; i < 5; i++) ds.set({ right: { effect: 'weapon', start: 3, end: 5, strength: i + 1 } }); await tick(60); assert.equal(f.tried.length, n, 'no repeated attempts after failing');
   ds.retry(); ds.set({ right: TRIGGER_FEEL.second }); await tick(40); assert.ok(f.tried.length > n, 'retry sends again');
   ds.setTransport('usb'); ds.set({ right: TRIGGER_FEEL.first }); await tick(40); assert.equal(f.tried.at(-1).id, 0x02, 'a forced layout is used as chosen');
