@@ -16,6 +16,7 @@ assert.deepEqual(await visible(), [], 'no UI while playing');
 await pad({ buttons: { RT: 1 } });
 await page.evaluate(() => {
   const H = window.__hero; window.__log = { switches: 0, locks: 0, kills: 0, states: new Set(), maxAlive: 0 };
+  for (let i = 0; i < 5; i++) { const an = i * 1.3; H.sess.crowd.spawn('furry', 0, H.player.x + Math.cos(an) * 6, H.player.y + Math.sin(an) * 6, { emerge: false }); }   // the opening is gentle, so bring company
   H.__hurt = H.sess.run.hurt; H.sess.run.hurt = () => false;                                   // immortal for the test, so it keeps playing
   let prev = null;
   const tick = () => {

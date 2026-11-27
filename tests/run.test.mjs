@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { Crowd, KINDS, EMERGE, gaitPulse } from '../src/game/crowd.js';
 import { createDirector, pickSpawn, spawnTable, DIRECTOR } from '../src/game/director.js';
 import { runAim, createLock, turnToward } from '../src/game/autoaim.js';
-import { createRun, createSession, RUN } from '../src/game/run.js';
+import { createRun, createSession, RUN, speedRamp } from '../src/game/run.js';
+import { DEFS } from '../src/tuning.js';
 import { buildWorld, BOUNDS } from '../src/game/layout.js';
 
 const empty = { bounds: BOUNDS, circles: [], boxes: [] };
@@ -117,12 +118,12 @@ test('spawn points are a screen away from the player where the arena allows it',
 });
 test('bigger enemies unlock as time passes', () => {
   const kinds = t => spawnTable(t).map(e => `${e.kind}${e.tier}`);
-  assert.deepEqual(kinds(0), ['furry0']); assert.ok(kinds(25).includes('furry1')); assert.ok(kinds(40).includes('zip0')); assert.ok(kinds(80).includes('furry2'));
+  assert.deepEqual(kinds(0), ['furry0']); assert.ok(!kinds(30).includes('furry1') && kinds(45).includes('furry1')); assert.ok(!kinds(50).includes('zip0') && kinds(80).includes('zip0')); assert.ok(!kinds(90).includes('furry2') && kinds(120).includes('furry2'));
 });
 test('a swarm arrives on schedule, and says so', () => {
   const d = createDirector({ world: empty, bounds: BOUNDS, rng: seeded() }); let swarm = null, t = 0;
   while (!swarm && t < 60) { for (const e of d.update(1 / 60, { player: P(), cost: 99 })) if (e.type === 'swarm') swarm = e; t += 1 / 60; }
-  assert.ok(swarm && t >= DIRECTOR.firstSwarm - 0.1 && t < DIRECTOR.firstSwarm + 1, `t=${t}`); assert.ok(swarm.n >= 8);
+  assert.ok(swarm && t >= DIRECTOR.firstSwarm - 0.1 && t < DIRECTOR.firstSwarm + 1, `t=${t}`); assert.ok(swarm.n >= 5);
 });
 test('the pressure setting scales how much may be alive', () => {
   const a = createDirector({ world: empty, bounds: BOUNDS, pressure: () => 1 }), b = createDirector({ world: empty, bounds: BOUNDS, pressure: () => 2 }); assert.ok(b.cap() > a.cap() * 1.9);
@@ -181,6 +182,47 @@ test('turning is rate limited and ignores sub-degree wobble', () => {
 });
 
 /* ---------------- run: hearts, score ---------------- */
+const PLAYER_TOP = DEFS.find(d => d.key === 'move.maxSpeed').def;
+test('the player is always faster than any furry: walking peaks, lunges and dashes', () => {
+  for (const kind of Object.values(KINDS)) for (const T of kind.tiers) {
+    let peak = 0; for (let i = 0; i < 1000; i++) peak = Math.max(peak, gaitPulse(T.gait, i / 1000));
+    assert.ok(T.speed * peak < PLAYER_TOP * 0.8, `${T.name} walks at up to ${(T.speed * peak).toFixed(2)} vs the player's ${PLAYER_TOP}`);
+    if (T.lunge) assert.ok(T.lunge < PLAYER_TOP, `${T.name} lunge ${T.lunge}`);
+    if (T.dash) assert.ok(T.dash < PLAYER_TOP, `${T.name} dash ${T.dash}`);
+  }
+});
+test('the speed slider cannot let a furry catch the player', () => {
+  const max = DEFS.find(d => d.key === 'run.speed').max;
+  for (const kind of Object.values(KINDS)) for (const T of kind.tiers) { let peak = 0; for (let i = 0; i < 1000; i++) peak = Math.max(peak, gaitPulse(T.gait, i / 1000)); assert.ok(T.speed * peak * max < PLAYER_TOP, T.name); }
+});
+test('the first furry is big enough to be seen over the gun: taller than the barrel, and in proportion to the hero', () => {
+  const mini = KINDS.furry.tiers[0], furry = KINDS.furry.tiers[1], giant = KINDS.furry.tiers[2];
+  assert.ok(mini.h >= 1.0, `Mini is ${mini.h} tall; the gun is carried at about 0.75`); assert.ok(mini.r >= 0.45);
+  assert.ok(mini.h < furry.h && furry.h < giant.h && furry.h / mini.h > 1.5 && giant.h / furry.h > 1.5, 'three clearly different sizes');
+});
+test('furries start gentle and reach full speed after the ramp', () => {
+  assert.equal(speedRamp(0), RUN.rampStart); assert.equal(speedRamp(RUN.rampSecs), 1); assert.equal(speedRamp(9999), 1); assert.ok(speedRamp(60) > speedRamp(30));
+  const c = new Crowd(empty, { rng: seeded() }); const e = c.spawn('furry', 0, 20, 0, { emerge: false });
+  const s = createSession({ world: empty, bounds: BOUNDS, rng: seeded(), pressure: () => 0.0001 }); const e2 = s.crowd.spawn('furry', 0, 20, 0, { emerge: false });
+  for (let i = 0; i < 120; i++) { c.step(1 / 60, P(-40, 0)); s.step(1 / 60, P(-40, 0)); }
+  assert.ok(20 - e2.x < (20 - e.x) * 0.85, 'in the first seconds the session moves them slower than full speed');
+});
+test('the first minute is quiet: the opening spawn rate and cap are low', () => {
+  const rng = seeded(8), d = createDirector({ world: empty, bounds: BOUNDS, rng }), c = new Crowd(empty, { rng }); let spawned = 0;
+  for (let i = 0; i < 60 * 20; i++) for (const e of d.update(1 / 60, { player: P(), cost: c.cost })) if (e.type === 'spawn') { c.spawn(e.kind, e.tier, e.x, e.y); spawned++; }
+  assert.ok(spawned <= 8, `${spawned} spawns in the first 20 seconds`); assert.ok(c.list.every(e => e.tier === 0), 'only the smallest at the start');
+});
+test('three hits: 3/3, 2/3, 1/3, and the third hit ends the run', () => {
+  const r = createRun(); assert.equal(r.hp, 3);
+  const hit = () => { r.tick(RUN.invuln + 0.1); return r.hurt(); };
+  assert.ok(hit()); assert.equal(r.hp, 2); assert.equal(r.over, false);
+  assert.ok(hit()); assert.equal(r.hp, 1); assert.equal(r.over, false);
+  assert.ok(hit()); assert.equal(r.hp, 0); assert.equal(r.over, true);
+});
+test('after a hit the hero is faster for a moment, then back to normal; nothing heals', () => {
+  const r = createRun(); assert.equal(r.speedMul, 1); r.hurt(); assert.ok(Math.abs(r.speedMul - RUN.boostMul) < 1e-9);
+  r.tick(RUN.boost + 0.1); assert.equal(r.speedMul, 1); r.tick(60); assert.equal(r.hp, 2, 'no regeneration');
+});
 test('hearts, invulnerability and game over', () => {
   const r = createRun({ hearts: 2 }); assert.equal(r.hurt(), true); assert.equal(r.hp, 1); assert.equal(r.hurt(), false, 'invulnerable right after a hit');
   r.tick(RUN.invuln + 0.1); assert.equal(r.hurt(), true); assert.equal(r.over, true); assert.equal(r.hp, 0);

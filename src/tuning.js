@@ -45,7 +45,7 @@ export const DEFS = [
   { key: 'assist.cone',    page: 'hero', group: 'Aim', label: 'Assist cone (degrees)',    min: 0,   max: 20,  step: 0.5,  def: 8 },
   { key: 'assist.strength',page: 'hero', group: 'Aim', label: 'Assist strength',          min: 0,   max: 1,   step: 0.05, def: 0.5 },
   { key: 'run.hearts',     page: 'hero', group: 'Survival run', label: 'Hearts',                min: 1,   max: 6,   step: 1,    def: 3 },
-  { key: 'run.speed',      page: 'hero', group: 'Survival run', label: 'Enemy speed (x)',       min: 0.6, max: 1.6, step: 0.05, def: 1 },
+  { key: 'run.speed',      page: 'hero', group: 'Survival run', label: 'Enemy speed (x)',       min: 0.6, max: 1.3, step: 0.05, def: 1 },
   { key: 'run.pressure',   page: 'hero', group: 'Survival run', label: 'Enemy numbers (x)',     min: 0.5, max: 2.5, step: 0.05, def: 1 },
   { key: 'run.range',      page: 'hero', group: 'Survival run', label: 'Auto-aim range (units)', min: 6,  max: 24,  step: 0.5,  def: 16 },
   { key: 'run.lead',       page: 'hero', group: 'Survival run', label: 'Lead moving targets',   kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },

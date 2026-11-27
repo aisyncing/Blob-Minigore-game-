@@ -6,10 +6,10 @@
 import { KINDS } from './crowd.js';
 
 export const DIRECTOR = {
-  startCap: 4, capPerSec: 0.11, maxCap: 80,              // how much danger may be alive at once, over time
-  gapStart: 0.9, gapMin: 0.18, gapDrop: 0.003,           // seconds between spawns, shrinking
-  telegraph: 0.9, swarmTelegraph: 1.4,                    // warning time before a spawn pops in
-  swarmEvery: 30, swarmJitter: 6, firstSwarm: 28,
+  startCap: 2.5, capPerSec: 0.13, maxCap: 80,              // how much danger may be alive at once, over time
+  gapStart: 2.4, gapMin: 0.3, gapDrop: 0.008,           // seconds between spawns, shrinking
+  telegraph: 1.1, swarmTelegraph: 1.5,                    // warning time before a spawn pops in
+  swarmEvery: 35, swarmJitter: 6, firstSwarm: 50,
   minSpawnDist: 18, margin: 1.4,                          // spawn out of sight (about one screen away), inside the arena
 };
 
@@ -18,9 +18,9 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 /** What may spawn right now, with weights. */
 export function spawnTable(t) {
   const out = [{ kind: 'furry', tier: 0, w: 10 }];
-  if (t >= 18) out.push({ kind: 'furry', tier: 1, w: Math.min(6, (t - 18) * 0.15) });
-  if (t >= 30) out.push({ kind: 'zip', tier: 0, w: Math.min(5, (t - 30) * 0.12) });
-  if (t >= 60) out.push({ kind: 'furry', tier: 2, w: Math.min(2.2, (t - 60) * 0.05) });
+  if (t >= 35) out.push({ kind: 'furry', tier: 1, w: Math.min(6, (t - 35) * 0.12) });
+  if (t >= 60) out.push({ kind: 'zip', tier: 0, w: Math.min(4, (t - 60) * 0.1) });
+  if (t >= 100) out.push({ kind: 'furry', tier: 2, w: Math.min(2.2, (t - 100) * 0.04) });
   return out;
 }
 
@@ -45,7 +45,7 @@ function blocked(x, y, world, pad) {
 
 export function createDirector({ world, bounds, rng = Math.random, pressure = () => 1, params = {} } = {}) {
   const P = { ...DIRECTOR, ...params };
-  const D = { t: 0, cooldown: 2.2, pending: [], nextSwarm: P.firstSwarm, swarms: 0 };
+  const D = { t: 0, cooldown: 3.5, pending: [], nextSwarm: P.firstSwarm, swarms: 0 };
   const cap = () => Math.min(P.maxCap, (P.startCap + P.capPerSec * D.t) * pressure());
   const pendingCost = () => D.pending.reduce((s, p) => s + KINDS[p.kind].tiers[p.tier].cost, 0);
 
@@ -67,7 +67,7 @@ export function createDirector({ world, bounds, rng = Math.random, pressure = ()
       // a swarm: a ring around the player, or a line along one side, on top of the budget
       if (D.t >= D.nextSwarm) {
         D.swarms++; D.nextSwarm = D.t + P.swarmEvery + (rng() * 2 - 1) * P.swarmJitter;
-        const n = Math.round(clamp(8 + D.t / 14, 8, 26)), ring = D.swarms % 2 === 1; ev.push({ type: 'swarm', n, shape: ring ? 'ring' : 'line' });
+        const n = Math.round(clamp(5 + D.t / 18, 5, 22)), ring = D.swarms % 2 === 1; ev.push({ type: 'swarm', n, shape: ring ? 'ring' : 'line' });
         const side = rng() * Math.PI * 2;
         for (let i = 0; i < n; i++) {
           let x, y;
@@ -87,6 +87,6 @@ export function createDirector({ world, bounds, rng = Math.random, pressure = ()
       }
       return ev;
     },
-    reset() { D.t = 0; D.cooldown = 2.2; D.pending.length = 0; D.nextSwarm = P.firstSwarm; D.swarms = 0; },
+    reset() { D.t = 0; D.cooldown = 3.5; D.pending.length = 0; D.nextSwarm = P.firstSwarm; D.swarms = 0; },
   };
 }

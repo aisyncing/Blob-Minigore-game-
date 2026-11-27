@@ -226,7 +226,8 @@ let shake = 0, prevFire = false;
 function simStep(h) {
   if (mode !== 'play' && mode !== 'run') { input.consumeTap(); return; }
   if (gamePaused || sess.run.over) { input.consumeTap(); return; }      // taps made on menus must not fire a shot when play starts
-  const v = player.v; stepVelocity(v, snap.move, P, h);
+  const pm = mode === 'run' ? sess.run.speedMul : 1;                                 // the getaway burst after a hit
+  const v = player.v; stepVelocity(v, snap.move, pm === 1 ? P : { ...P, maxSpeed: P.maxSpeed * pm, accel: P.accel * pm }, h);
   const sp = Math.hypot(v.x, v.y);
   if (snap.move.mag > 0.4 && sp > 3 && (v.x * snap.move.x + v.y * snap.move.y) / (sp * snap.move.mag) < -0.3) { player.skidT -= h; if (player.skidT <= 0) { player.skidT = 0.05; fx.dust(player.x, player.y, v.x / sp, v.y / sp, 0.9); } }
   player.x += (v.x + player.kb.x) * h; player.y += (v.y + player.kb.y) * h;
@@ -281,6 +282,7 @@ function simStep(h) {
         shake = Math.max(shake, 0.3); haptics.hurt?.(); audio.sfx.hurt?.();
         const hf = $('#hurtflash'); hf.classList.add('on'); setTimeout(() => hf.classList.remove('on'), 60);
         document.body.classList.toggle('low-hp', sess.run.hp === 1);
+        heroes[selected].setDamage(sess.run.maxHp - sess.run.hp);                      // hat flies off on the first hit, a plaster on the second
       }
       else if (ev.type === 'dead') { onGameOver(); }
     }
@@ -330,7 +332,7 @@ function setMode(m) {
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
   if (inArena) { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
   if (m === 'run') startRun();
-  else { furries.setVisible(false); furries.clear(); sess.crowd.clear(); lock.target = null; }
+  else { furries.setVisible(false); furries.clear(); sess.crowd.clear(); lock.target = null; for (const hr of heroes) hr.setDamage(0); }
   heroes.forEach((h, k) => { if (m === 'compare') h.root.position.set(SHOW.x + (k - 1) * 4.6, 0, SHOW.z); });
   $('#panel').classList.toggle('collapsed', m === 'compare' || innerWidth < 900);
   $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = inArena ? 'flex' : 'none';
@@ -344,6 +346,7 @@ function startRun() {
   furries.clear(); furries.setVisible(true); gun.reset(); pellets.clear();
   player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; player.hasAim = false;
   $('#over').classList.remove('on'); document.body.classList.remove('paused', 'low-hp');
+  for (const hr of heroes) hr.setDamage(0);
 }
 function setPaused(p) { gamePaused = p; document.body.classList.toggle('paused', p && mode === 'run'); }
 function updateHint() {
@@ -529,6 +532,7 @@ function frame(now) {
   }
   for (const t of targets) views.get(t).update(dtv, clock);
   if (mode === 'run') { const r = furries.update(sess.crowd.list, clock, dt, player); shake = Math.max(shake, r.shake); furries.updateWarns(dt, clock); furries.updateSplats(dt); }
+  for (const hr of heroes) hr.updateFx(realDt);
   fx.update(dt); updateCamera(Math.max(realDt, 1e-4)); stage.render();
   if ((now / 100 | 0) !== ((now - raw) / 100 | 0)) updateDiag();
   requestAnimationFrame(frame);

@@ -15,7 +15,7 @@ const _v = new THREE.Vector3();
 
 export class Hero {
   constructor(design, stage, fx, rig) {
-    this.d = design.build(); this.key = design.key; this.fx = fx; this.meta = rig.meta;
+    this.d = design.build(); this.key = design.key; this.fx = fx; this.meta = rig.meta; this.scene = stage.scene; this.damage = 0; this.lostHat = null; this.bandage = null;
     this.root = new THREE.Group(); stage.scene.add(this.root);
     this.legs = new THREE.Group(); this.root.add(this.legs); for (const f of this.d.feet) this.legs.add(f);
     this.torso = new THREE.Group(); this.root.add(this.torso);
@@ -48,6 +48,43 @@ export class Hero {
     this.setVisible(false);
   }
   setVisible(v) { this.root.visible = v; }
+  /**
+   * How battered the hero looks: 0 healthy, 1 lost the head piece (it flies off and lies on the ground), 2 and up bandaged as well.
+   * Going down plays the loss; going back to 0 restores everything (a new run).
+   */
+  setDamage(level) {
+    const prev = this.damage; this.damage = level; const acc = this.d.accessory;
+    if (level >= 1 && prev < 1 && acc) this.popHat();
+    if (level < 1) { if (acc) acc.visible = true; if (this.lostHat) { this.lostHat.mesh.removeFromParent(); this.lostHat = null; } }
+    if (level >= 2 && !this.bandage) this.bandage = this.makeBandage();
+    if (this.bandage) this.bandage.visible = level >= 2;
+  }
+  popHat() {
+    const acc = this.d.accessory; acc.updateWorldMatrix(true, false);
+    const mesh = acc.clone(true); mesh.matrix.copy(acc.matrixWorld); mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale); mesh.matrixAutoUpdate = true; this.scene.add(mesh);
+    acc.visible = false;
+    if (this.lostHat) this.lostHat.mesh.removeFromParent();
+    const a = Math.random() * Math.PI * 2;
+    this.lostHat = { mesh, vx: Math.cos(a) * 2.4, vy: 5.5, vz: Math.sin(a) * 2.4, spin: (Math.random() < 0.5 ? -1 : 1) * 9, age: 0 };
+  }
+  /** a plaster across the head, placed relative to the right eye so it sits on whichever body this design has */
+  makeBandage() {
+    const eye = this.d.look.reduce((a, b) => (b.position.x > a.position.x ? b : a)), g = new THREE.Group();
+    const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.15, 0.1), toon('#f4ecd8')), pad = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.17, 0.115), toon('#d98a8a'));
+    for (const m of [cloth, pad]) { m.castShadow = true; g.add(m); }
+    g.position.set(eye.position.x * 0.95, eye.position.y + 0.3, eye.position.z - 0.08); g.rotation.set(-0.25, 0.25, 0.55);
+    eye.parent.add(g); return g;
+  }
+  /** the dropped hat: a short arc, a bounce, then it lies there for a while */
+  updateFx(dt) {
+    const h = this.lostHat; if (!h) return;
+    h.age += dt; const m = h.mesh;
+    if (m.position.y > 0.06 || h.vy > 0) {
+      h.vy -= 16 * dt; m.position.x += h.vx * dt; m.position.y += h.vy * dt; m.position.z += h.vz * dt; m.rotation.y += h.spin * dt; m.rotation.x += h.spin * 0.4 * dt;
+      if (m.position.y <= 0.06 && h.vy < 0) { m.position.y = 0.06; if (h.vy < -2) { h.vy *= -0.3; h.vx *= 0.5; h.vz *= 0.5; h.spin *= 0.4; } else { h.vy = 0; h.vx = h.vz = 0; h.spin = 0; m.rotation.x = 0.15; } }
+    }
+    if (h.age > 12) { m.removeFromParent(); this.lostHat = null; }
+  }
   get radius() { return this.d.radius; }
 
   /**

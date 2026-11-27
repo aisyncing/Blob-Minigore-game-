@@ -5,17 +5,18 @@
 //          wall-follows round props. In reach it winds up (arms up, mouth open), lunges and swipes: only the swipe hurts.
 //   zip    "Charger": closes in, stops, shakes (a telegraph you can read), locks onto where you are GOING, then dashes.
 //
+// SPEED RULE: the player (7.5 u/s) is always faster than any furry, including the peaks of a hop or stomp, a lunge and a Charger's dash.
 // Crowd control is the cheap kind (seek + separation through a grid), no per-frame pathfinding, so 100+ enemies stay light.
 import { resolveWorld } from './collide.js';
 import { hasLineOfSight } from './ballistics.js';
 
 export const KINDS = {
   furry: { tiers: [
-    { name: 'Mini Furry',  r: 0.32, h: 0.62, hp: 26,  speed: 5.6, cost: 1,   score: 10, gait: 'hop',    stride: 0.85, reach: 0.35, windup: 0.18, strike: 0.10, recover: 0.30, lunge: 7 },
-    { name: 'Furry',       r: 0.62, h: 1.5,  hp: 80,  speed: 4.2, cost: 2.4, score: 20, gait: 'waddle', stride: 1.15, reach: 0.55, windup: 0.32, strike: 0.12, recover: 0.42, lunge: 7.5 },
-    { name: 'Giant Furry', r: 1.18, h: 3.0,  hp: 260, speed: 2.7, cost: 6,   score: 50, gait: 'stomp',  stride: 1.9,  reach: 0.9,  windup: 0.55, strike: 0.16, recover: 0.70, lunge: 6 },
+    { name: 'Mini Furry',  r: 0.5,  h: 1.15, hp: 26,  speed: 3.6, cost: 1,   score: 10, gait: 'hop',    stride: 1.1, reach: 0.5, windup: 0.30, strike: 0.12, recover: 0.50, lunge: 5.5 },
+    { name: 'Furry',       r: 0.85, h: 2.0,  hp: 80,  speed: 3.0, cost: 2.4, score: 20, gait: 'waddle', stride: 1.6, reach: 0.7, windup: 0.40, strike: 0.14, recover: 0.55, lunge: 5.5 },
+    { name: 'Giant Furry', r: 1.5,  h: 3.6,  hp: 260, speed: 1.9, cost: 6,   score: 50, gait: 'stomp',  stride: 2.6, reach: 1.1, windup: 0.65, strike: 0.18, recover: 0.80, lunge: 4.5 },
   ] },
-  zip: { tiers: [{ name: 'Charger', r: 0.4, h: 0.95, hp: 40, speed: 4.6, cost: 2.5, score: 30, gait: 'scurry', stride: 0.9, dash: 13.5, windup: 0.6, dashT: 0.5, recover: 0.9, trigger: 8.5 }] },
+  zip: { tiers: [{ name: 'Charger', r: 0.55, h: 1.35, hp: 40, speed: 3.6, cost: 2.5, score: 30, gait: 'scurry', stride: 1.2, dash: 7.2, windup: 0.7, dashT: 0.6, recover: 1.0, trigger: 8 }] },
 };
 export const tierOf = (kind, tier) => KINDS[kind].tiers[tier];
 export const EMERGE = 0.5;                                                     // seconds a new enemy spends digging out of the ground
