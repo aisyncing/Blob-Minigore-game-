@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { createStage, clamp, R2 } from '../engine/stage.js';
 import { createFx } from '../engine/fx.js';
 import * as audio from '../engine/audio.js';
-import { createArena, SPAWN } from '../game/arena.js';
+import { createArena, SPAWN, ARENA_BOUNDS } from '../game/arena.js';
 import { LAYOUT } from '../game/layout.js';
 import { resolveWorld, circleVsCircle } from '../game/collide.js';
 import { stepVelocity, moveStats } from '../game/movement.js';
@@ -23,18 +23,23 @@ import { DESIGNS } from './designs.js';
 import { Hero } from './hero.js';
 import { loadRig } from './rigAsset.js';
 import { DummyView } from './dummy.js';
+import { createSession } from '../game/run.js';
+import { runAim } from '../game/autoaim.js';
+import { createCritters, critterColor } from './critters.js';
 
 const STEP = 1 / 120;
 const SHOW = { x: 0, z: 90 };                       // the compare stage lives far from the arena
 const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s) => document.querySelector(s);
 const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '-');
 
 /* ------------------------------ page ------------------------------ */
 $('#app').innerHTML = `
 <canvas id="c" tabindex="0"></canvas><div id="vig"></div>
 <div id="top">
-  <h1>Blob Shooter<small>Iteration 2 · aiming and the shotgun</small></h1>
-  <button id="bMode" class="primary">Play</button>
+  <h1>Blob Minigore<small>V2 · survival run</small></h1>
+  <button id="bMode" class="primary">Survival Run</button>
+  <button id="bRange">Training</button>
   <span class="pill" id="chipSrc">Keyboard + mouse</span>
 </div>
 <div id="cards"></div>
@@ -59,13 +64,13 @@ $('#app').innerHTML = `
   </details>
   <h2>Last shot</h2>
   <div class="stat" id="shotStat">Fire at a dummy.</div>
-  <div class="actions"><button id="bRange">Reset range</button><button id="bReset">Reset all</button><button id="bCopy">Copy my settings</button><button id="bHide">Hide panel</button></div>
+  <div class="actions"><button id="bRangeReset">Reset range</button><button id="bReset">Reset all</button><button id="bCopy">Copy my settings</button><button id="bHide">Hide panel</button></div>
   <label class="chk"><input type="checkbox" id="dbg"> Show colliders and numbers</label>
   <textarea id="copyBox" readonly hidden></textarea>
   <h2>Diagnostics</h2><div class="diag" id="diag"></div>
 </aside>
 <button id="panelBtn">Tuning</button>
-<div id="focus"><div><h1>Blob Shooter</h1><p>Click to start. WASD moves, the mouse aims, hold left click to fire, R reloads.</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button to start, then D-pad or LB/RB to pick a hero and <b>A</b> to play.</p></div></div>`;
+<div id="hud"><div id="hearts"></div><div id="score"><small id="mult"></small></div><div id="clock">0:00</div><div id="comboBar"><i></i></div><div id="banner"></div><div id="arrows"></div></div><div id="hurtflash"></div><div id="over"><div><h1 id="overTitle">Game Over</h1><p id="overSub"></p><div class="big" id="overScore"></div><p id="overBest"></p><button id="bRetry">Play Again</button></div></div><div id="focus"><div><h1>Blob Minigore</h1><p>Click to start · <b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button, pick a hero, <b>A</b> to play.</p></div></div>`;
 
 /* ------------------------------ engine ------------------------------ */
 const canvas = $('#c');
@@ -89,6 +94,12 @@ const targets = [], views = new Map();
 for (const [x, y] of LAYOUT.range.still) targets.push(new Target({ x, y }));
 { const pc = LAYOUT.range.patrol; for (let i = 0; i < pc.count; i++) targets.push(new Target({ x: 0, y: 0, path: pc.path, speed: pc.speed, phase: i / pc.count })); }
 for (const t of targets) views.set(t, new DummyView(arena.group, t, stage.camera));
+
+/* ------------------------------ survival run session ------------------------------ */
+const sess = createSession({ world: arena.world, bounds: ARENA_BOUNDS, rng: Math.random, hearts: 3, speed: () => tuning.get('run.speed'), pressure: () => tuning.get('run.pressure'), playerRadius: 0.5 });
+const critters = createCritters(stage.scene);
+let bestScore = parseInt(localStorage.getItem('blob.best') || '0', 10);
+let gamePaused = false, aimTarget = null;
 
 /* ------------------------------ aiming visuals ------------------------------ */
 const aimGroup = new THREE.Group(); stage.scene.add(aimGroup);
@@ -165,7 +176,8 @@ function shoot(barrel, ammoLeft = 1) {
   const st = { id, fired: P.pellets, hits: 0, damage: 0, nearest: Infinity, kills: 0, t: performance.now() }; stats.recent.set(id, st); stats.last = st; stats.shots++; stats.pellets += P.pellets;
   if (stats.recent.size > 6) stats.recent.delete(stats.recent.keys().next().value);
   // anything between the player and the muzzle (a dummy against the gun, a wall) is resolved before the pellets start flying
-  launchBlast({ sim: pellets, from: player, muzzle, dir: { x: ax, y: ay }, angles: pelletPattern(P.pellets, P.spread, P.bias), spec, speed: () => P.pelletSpeed * R2(0.94, 1.06), world: arena.world, targets, shot: id, onHit });
+  const liveTargets = mode === 'run' ? sess.crowd.list : targets;
+  launchBlast({ sim: pellets, from: player, muzzle, dir: { x: ax, y: ay }, angles: pelletPattern(P.pellets, P.spread, P.bias), spec, speed: () => P.pelletSpeed * R2(0.94, 1.06), world: arena.world, targets: liveTargets, shot: id, onHit });
   // recoil on the hero, kick on the gun and camera
   player.kb.x -= ax * P.recoil; player.kb.y -= ay * P.recoil; h.fire();
   const kbm = Math.hypot(player.kb.x, player.kb.y); if (kbm > 12) { player.kb.x *= 12 / kbm; player.kb.y *= 12 / kbm; }   // rapid fire can't stack a shove without limit
@@ -176,6 +188,25 @@ function shoot(barrel, ammoLeft = 1) {
 }
 function onHit(h) {
   const st = stats.recent.get(h.shot);
+  if (h.ref?.isEnemy) {
+    const e = h.ref;
+    const res = sess.hit(e, h.damage, h.dx, h.dy);
+    stats.hits++; stats.damage += res.dealt; if (st) { st.hits++; st.damage += res.dealt; st.nearest = Math.min(st.nearest, h.dist); }
+    critters.splat(e.x, e.y, e.r * 1.4, critterColor(e));
+    fx.sparks(h.x, h.y, h.nx, h.ny, '#ffe9a8', 3);
+    for (let i = 0; i < 2; i++) fx.emit(h.x, 0.9, h.y, h.nx * R2(1, 3) + R2(-1, 1), R2(0.5, 2), h.ny * R2(1, 3) + R2(-1, 1), R2(0.25, 0.4), R2(0.06, 0.11), '#ffe9a8', { g: 9, op: 0.95 });
+    if (!(e.sndT > 0)) { audio.sfx.hit(0.6); e.sndT = 0.05; }
+    if (res.killed) {
+      stats.kills++; if (st) st.kills++;
+      haptics.kill(); pauseT = Math.max(pauseT, P.hitPause);
+      audio.sfx.pop();
+      if (res.gain > 0 && P.numbers) fx.number(e.x, 2.6, e.y, '+' + res.gain, res.gain >= 40 ? '#ffd23f' : '#ffffff');
+      fx.ring(e.x, e.y, 2.6, '#ffd23f', 0.5);
+      for (let i = 0; i < 20; i++) { const a = Math.random() * 6.28, sp = R2(2, 6); fx.emit(e.x, 1, e.y, Math.cos(a) * sp, R2(2, 5), Math.sin(a) * sp, R2(0.4, 0.8), R2(0.07, 0.14), ['#ffd166','#ff8fc7','#b48cf0','#4ad6c8'][i & 3], { g: 13, op: 1 }); }
+      if (res.children?.length) { for (const ch of res.children) critters.warn(ch.x, ch.y, 0.1, 0.5); }
+    }
+    return;
+  }
   if (h.kind === 'target') {
     const tg = h.ref, v = views.get(tg), r = tg.damage(h.damage);
     stats.hits++; stats.damage += r.dealt; if (st) { st.hits++; st.damage += r.dealt; st.nearest = Math.min(st.nearest, h.dist); }
@@ -197,7 +228,8 @@ function onHit(h) {
 /* ------------------------------ simulation (fixed 120 Hz) ------------------------------ */
 let shake = 0, prevFire = false;
 function simStep(h) {
-  if (mode !== 'play') { input.consumeTap(); return; }      // taps made on menus must not fire a shot when play starts
+  if (mode !== 'play' && mode !== 'run') { input.consumeTap(); return; }
+  if (gamePaused || sess.run.over) { input.consumeTap(); return; }      // taps made on menus must not fire a shot when play starts
   const v = player.v; stepVelocity(v, snap.move, P, h);
   const sp = Math.hypot(v.x, v.y);
   if (snap.move.mag > 0.4 && sp > 3 && (v.x * snap.move.x + v.y * snap.move.y) / (sp * snap.move.mag) < -0.3) { player.skidT -= h; if (player.skidT <= 0) { player.skidT = 0.05; fx.dust(player.x, player.y, v.x / sp, v.y / sp, 0.9); } }
@@ -209,12 +241,19 @@ function simStep(h) {
   if (impact > 2.5 && player.impact <= 0) { player.impact = 0.15; fx.dust(player.x, player.y, -v.x, -v.y, Math.min(1, impact / 7)); shake = Math.max(shake, Math.min(0.25, impact * 0.025)); }
   player.impact -= h; player.vx = v.x + player.kb.x; player.vy = v.y + player.kb.y; player.speed = Math.hypot(player.vx, player.vy);
 
-  // aim: explicit input (cursor, right stick, arrows) wins; otherwise auto mode picks a visible target; otherwise, while firing, the walking direction
+  // aim: in run mode R2 auto-targets the nearest enemy; right stick overrides when pushed
   let explicit = { x: 0, y: 0 };
   if (snap.mouseAim) { const a = mouseAim(player, input.mouse, { x: player.aimX, y: player.aimY }); explicit = { x: a.x, y: a.y }; }
   else if (snap.aim.mag > 0.02) explicit = { x: snap.aim.x / snap.aim.mag, y: snap.aim.y / snap.aim.mag };
-  const helped = chooseAim(player, explicit, snap.move, snap.fire, targets, arena.world, { mode: snap.mouseAim ? 'manual' : P.assistMode, coneDeg: P.assistCone, strength: P.assistStrength, range: P.range + 3 });
-  if (helped.aiming) { player.aimX = helped.x; player.aimY = helped.y; player.hasAim = true; } else player.hasAim = snap.fire;   // firing without any aim keeps the last direction
+  let helped;
+  if (mode === 'run') {
+    const override = tuning.get('run.override') > 0.5 ? explicit : { x: 0, y: 0 };
+    helped = runAim(player, override, snap.move, snap.fire, sess.crowd.list, arena.world, { range: tuning.get('run.range'), lead: tuning.get('run.lead'), pelletSpeed: P.pelletSpeed, prev: aimTarget, sticky: 0.2 });
+    aimTarget = helped.target;
+  } else {
+    helped = chooseAim(player, explicit, snap.move, snap.fire, targets, arena.world, { mode: snap.mouseAim ? 'manual' : P.assistMode, coneDeg: P.assistCone, strength: P.assistStrength, range: P.range + 3 });
+  }
+  if (helped.aiming) { player.aimX = helped.x; player.aimY = helped.y; player.hasAim = true; } else player.hasAim = snap.fire;
   player.assistTarget = helped.target;
 
   // the gun
@@ -228,7 +267,23 @@ function simStep(h) {
     else if (e.type === 'reloadDone') haptics.reload('grab');                     // a tiny tick: the gun is ready
   }
   input.consumeTap();                                        // this step has now seen any tap; fire falls back to the real held state
-  pellets.step(h, arena.world, targets, onHit);
+  const stepTargets = mode === 'run' ? sess.crowd.list : targets;
+  pellets.step(h, arena.world, stepTargets, onHit);
+  if (mode === 'run') {
+    const events = sess.step(h, { x: player.x, y: player.y, vx: player.v.x, vy: player.v.y, r: heroes[selected].radius });
+    for (const ev of events) {
+      if (ev.type === 'telegraph') { critters.warn(ev.x, ev.y, ev.delay, ev.kind === 'zip' ? 1.1 : 0.85); audio.sfx.warn?.(); }
+      else if (ev.type === 'spawn') { audio.sfx.spawn?.(); }
+      else if (ev.type === 'swarm') { $$('#banner')?.classList.add('on'); setTimeout(() => $$('#banner')?.classList.remove('on'), 1600); audio.sfx.swarm?.(); haptics.swarm?.(); }
+      else if (ev.type === 'hurt') {
+        player.kb.x += ev.enemy.vx * 0.5; player.kb.y += ev.enemy.vy * 0.5;
+        shake = Math.max(shake, 0.3); haptics.hurt?.(); audio.sfx.hurt?.();
+        const hf = document.getElementById('hurtflash'); if (hf) { hf.classList.add('on'); setTimeout(() => hf.classList.remove('on'), 50); }
+        updateHeartsHud();
+      }
+      else if (ev.type === 'dead') { onGameOver(); }
+    }
+  }
   for (const t of targets) {
     if (t.update(h) === 'respawned') { views.get(t).respawn(); fx.ring(t.x, t.y, 1.8, '#fff6e8', 0.4); }
     if (t.sndT > 0) t.sndT -= h;
@@ -266,29 +321,37 @@ function choose(i) {
   }
 }
 // the button always names the hero that is selected right now, however it was selected (card, 1/2/3, controller)
-function updateModeButton() { $('#bMode').textContent = mode === 'compare' ? `Play as ${heroes[selected].d.name}` : 'Compare designs'; }
+function updateModeButton() { $('#bMode').textContent = mode === 'compare' ? `Play as ${heroes[selected].d.name}` : mode === 'run' ? 'Compare designs' : 'Compare designs'; }
 function setMode(m) {
-  mode = m; updateModeButton();
-  arena.setVisible(m === 'play'); showGroup.visible = m === 'compare'; aimGroup.visible = cross.visible = m === 'play'; tracer.visible = m === 'play';
+  mode = m; gamePaused = false; updateModeButton();
+  const inArena = m === 'play' || m === 'run';
+  arena.setVisible(inArena); showGroup.visible = m === 'compare'; aimGroup.visible = cross.visible = inArena; tracer.visible = inArena;
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
-  if (m === 'play') { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
+  if (inArena) { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
+  if (m === 'run') { sess.reset(tuning.get('run.hearts')|0 || 3); aimTarget = null; critters.clear(); critters.setVisible(true); document.getElementById('over').classList.remove('on'); updateHeartsHud(); updateScoreHud(); }
+  else { critters.setVisible(false); sess.crowd.clear(); }
   heroes.forEach((h, k) => { if (m === 'compare') h.root.position.set(SHOW.x + (k - 1) * 4.6, 0, SHOW.z); });
   $('#panel').classList.toggle('collapsed', m === 'compare' || innerWidth < 900);
-  $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = m === 'play' ? 'flex' : 'none';
+  $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = inArena ? 'flex' : 'none';
   document.body.classList.toggle('mode-compare', m === 'compare');
+  document.body.classList.toggle('mode-run', m === 'run');
   updateHint();
 }
 function updateHint() {
   $('#hint').innerHTML = mode === 'compare'
-    ? '<b>1</b><b>2</b><b>3</b> choose a design, <b>Enter</b> or the Play button to try it. Each one walks, strafes, idles and reloads so you can judge it.<br>Controller: <b>D-pad</b> / <b>LB</b><b>RB</b> choose, <b>A</b> plays.'
-    : '<b>WASD</b> move, mouse aims, <b>click</b> fires, <b>R</b> reloads, <b>C</b> compare, <b>1</b><b>2</b><b>3</b> switch design. The training range is in the north-west corner.<br>Controller: sticks move and aim, <b>RT</b> fires, <b>X</b> reloads, <b>B</b> back to the designs.';
+    ? '<b>1</b><b>2</b><b>3</b> choose · <b>Enter</b> or Play button to run. <b>Training</b> for the range.<br>Controller: <b>D-pad</b>/<b>LB</b><b>RB</b> choose · <b>A</b> play · <b>Y</b> training range.'
+    : mode === 'run'
+    ? '<b>WASD</b> move · <b>R2 / click</b> fires (auto-aims) · survive as long as you can · <b>Start / Esc</b> pause<br>Controller: left stick moves · <b>R2</b> fires · auto-aims nearest enemy.'
+    : '<b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads · <b>C</b> back to hero select<br>Controller: sticks move and aim · <b>RT</b> fires · <b>B</b> back.';
 }
-$('#bMode').onclick = () => setMode(mode === 'compare' ? 'play' : 'compare');
+$('#bMode').onclick = () => setMode(mode === 'compare' ? 'run' : 'compare');
 addEventListener('keydown', e => {
   if (e.repeat) return; audio.unlock();
   if (e.code === 'Digit1') choose(0); else if (e.code === 'Digit2') choose(1); else if (e.code === 'Digit3') choose(2);
   else if (e.code === 'KeyC') setMode(mode === 'compare' ? 'play' : 'compare');
-  else if (e.code === 'Enter' && mode === 'compare') setMode('play');
+  else if (e.code === 'Enter' && mode === 'compare') setMode('run');
+  else if (e.code === 'Enter' && mode === 'play') setMode('run');
+  else if ((e.code === 'Escape' || e.code === 'KeyP') && mode === 'run') gamePaused = !gamePaused;
   $('#focus').classList.add('off');
 });
 const startFocus = () => { audio.unlock(); $('#focus').classList.add('off'); canvas.focus(); };
@@ -297,12 +360,16 @@ $('#focus').addEventListener('pointerdown', startFocus); canvas.addEventListener
 // controller menus: one action per button press (see src/input/menu.js)
 const nav = createMenuNav();
 function menuStep() {
-  const cmds = menuCommands(nav.update(snap.pad), { overlayUp: !$('#focus').classList.contains('off'), mode, selected, count: heroes.length });
+  const cmds = menuCommands(nav.update(snap.pad), { overlayUp: !$('#focus').classList.contains('off'), mode, selected, count: heroes.length, over: sess.run.over, paused: gamePaused });
   for (const c of cmds) {
     if (c.type === 'start') startFocus();
     else if (c.type === 'choose') choose(c.index);
-    else if (c.type === 'play') setMode('play');
+    else if (c.type === 'play') setMode('run');
+    else if (c.type === 'range') setMode('play');
     else if (c.type === 'compare') setMode('compare');
+    else if (c.type === 'retry') { sess.reset(tuning.get('run.hearts')|0 || 3); aimTarget = null; critters.clear(); critters.setVisible(true); document.getElementById('over').classList.remove('on'); gamePaused = false; }
+    else if (c.type === 'pause') gamePaused = true;
+    else if (c.type === 'resume') gamePaused = false;
   }
 }
 
@@ -328,7 +395,7 @@ function addControls(host, defs, openGroups = []) {
   }
   sync.forEach(f => f());
 }
-addControls($('#sliders'), DEFS.filter(d => d.page === 'hero'), ['Shotgun', 'Aim', 'Feedback']);
+addControls($('#sliders'), DEFS.filter(d => d.page === 'hero'), ['Shotgun', 'Aim', 'Feedback', 'Survival run']);
 addControls($('#inputSliders'), DEFS.filter(d => d.page === undefined && d.group !== 'Feel pad'));
 tuning.onChange(() => { sync.forEach(f => f()); readTuning(); updateStats(); audio.setVolume(tuning.get('fx.volume')); });
 audio.setVolume(tuning.get('fx.volume'));
@@ -348,7 +415,8 @@ function resetRange() {
   stats.shots = stats.pellets = stats.hits = stats.damage = stats.kills = 0; stats.recent.clear(); stats.last = null;
   updateDiag();
 }
-$('#bRange').onclick = resetRange;
+$('#bRangeReset').onclick = resetRange;
+$('#bRange').onclick = () => setMode('play');
 
 /* controller feel panel */
 {
@@ -387,6 +455,52 @@ function updateAmmoHud() {
   $('#ammo').classList.toggle('reloading', gun.reloading);
 }
 
+/* ------------------------------ HUD helpers ------------------------------ */
+function updateHeartsHud() {
+  const el = document.getElementById('hearts'); if (!el) return;
+  const max = sess.run.maxHp, cur = sess.run.hp;
+  el.innerHTML = Array.from({ length: max }, (_, i) => `<i class="${i < cur ? '' : 'off'}">♥</i>`).join('');
+}
+function updateScoreHud() {
+  const el = document.getElementById('score'), ml = document.getElementById('mult'); if (!el) return;
+  el.firstChild.textContent = sess.run.score;
+  if (ml) ml.textContent = sess.run.mult > 1 ? `×${sess.run.mult}` : '';
+  const cb = document.getElementById('comboBar'); if (cb) {
+    const bar = cb.firstElementChild, frac = sess.run.comboT > 0 ? sess.run.comboT / 2.5 : 0;
+    bar.style.width = (frac * 100) + '%'; cb.style.opacity = frac > 0 ? '1' : '0';
+  }
+  const ck = document.getElementById('clock'); if (ck) {
+    const t = sess.run.time, m = Math.floor(t / 60), s = Math.floor(t % 60); ck.textContent = m + ':' + String(s).padStart(2, '0');
+  }
+}
+function updateArrowIndicators() {
+  const el = document.getElementById('arrows'); if (!el || mode !== 'run') return;
+  const W = window.innerWidth, H = window.innerHeight, cx = W / 2, cy = H / 2, margin = 36;
+  const list = sess.crowd.list; let idx = 0;
+  for (const e of list) {
+    if (!e.alive) continue;
+    const v4 = new THREE.Vector4(e.x, 0, e.y, 1).applyMatrix4(stage.camera.matrixWorldInverse).applyMatrix4(stage.camera.projectionMatrix);
+    const sx = (v4.x / v4.w * 0.5 + 0.5) * W, sy = (-v4.y / v4.w * 0.5 + 0.5) * H;
+    const onScreen = sx > 0 && sx < W && sy > 0 && sy < H && v4.w > 0;
+    if (onScreen) continue;
+    let arr = el.children[idx]; if (!arr) { arr = document.createElement('i'); el.appendChild(arr); } idx++;
+    const dx = sx - cx, dy = sy - cy, ang = Math.atan2(dy, dx), len = Math.min(W, H) * 0.5 - margin;
+    const ax = cx + Math.cos(ang) * len, ay = cy + Math.sin(ang) * len;
+    arr.style.cssText = `display:block;left:${ax}px;top:${ay}px;transform:rotate(${ang + Math.PI/2}rad)`;
+    if (idx >= 24) break;
+  }
+  while (el.children.length > idx) el.lastElementChild.remove();
+}
+function onGameOver() {
+  const best = bestScore; if (sess.run.score > bestScore) { bestScore = sess.run.score; localStorage.setItem('blob.best', bestScore); }
+  const ov = document.getElementById('over'); if (!ov) return; ov.classList.add('on');
+  const t = document.getElementById('overTitle'); if (t) t.textContent = 'Game Over';
+  const sub = document.getElementById('overSub'); if (sub) sub.textContent = `Survived ${(sess.run.time / 60 | 0)}:${String(sess.run.time % 60 | 0).padStart(2,'0')} · ${sess.run.kills} kills`;
+  const sc = document.getElementById('overScore'); if (sc) sc.textContent = sess.run.score;
+  const bs = document.getElementById('overBest'); if (bs) bs.textContent = sess.run.score > best ? 'New Best!' : `Best: ${bestScore}`;
+  audio.sfx.over?.(); haptics.hurt?.();
+}
+document.getElementById('bRetry')?.addEventListener('click', () => { sess.reset(tuning.get('run.hearts')|0 || 3); aimTarget = null; critters.clear(); critters.setVisible(true); document.getElementById('over').classList.remove('on'); gamePaused = false; gun.reset(); pellets.clear(); player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; });
 /* ------------------------------ camera ------------------------------ */
 const focus = new THREE.Vector3(SHOW.x, 0, SHOW.z), _t = new THREE.Vector3();
 function updateCamera(dt) {
@@ -439,6 +553,7 @@ function frame(now) {
     updateAmmoHud();
   }
   for (const t of targets) views.get(t).update(dtv, clock);
+  if (mode === 'run') { critters.update(sess.crowd.list, clock); critters.updateWarns(dt); critters.updateSplats(dt); updateScoreHud(); updateArrowIndicators(); }
   fx.update(dt); updateCamera(Math.max(realDt, 1e-4)); stage.render();
   if ((now / 100 | 0) !== ((now - raw) / 100 | 0)) updateDiag();
   requestAnimationFrame(frame);
@@ -467,4 +582,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };
+window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps, sess, critters, bestScore: () => bestScore };

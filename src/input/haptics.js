@@ -13,7 +13,9 @@ export const RUMBLE = {
   grab:    [{ at: 0, strong: 0, weak: 0.25, ms: 20 }],
   insert:  [{ at: 0, strong: 0.35, weak: 0.30, ms: 35 }],
   close:   [{ at: 0, strong: 0.60, weak: 0.50, ms: 45 }, { at: 45, strong: 0.20, weak: 0.20, ms: 40 }],                                                      // the barrels snapping shut: the clearest click
-  kill:    [{ at: 0, strong: 0.20, weak: 0.60, ms: 40 }],                                                                                                    // a small bump when a dummy pops
+  kill:    [{ at: 0, strong: 0.20, weak: 0.60, ms: 40 }],
+  hurt:    [{ at: 0, strong: 1.0, weak: 1.0, ms: 120 }, { at: 120, strong: 0.5, weak: 0.4, ms: 140 }, { at: 260, strong: 0.2, weak: 0.1, ms: 120 }],   // you got hit: a heavy jolt that fades
+  swarm:   [{ at: 0, strong: 0.35, weak: 0.1, ms: 120 }, { at: 220, strong: 0.35, weak: 0.1, ms: 120 }],                                              // a swarm is coming: two low thumps                                                                                                    // a small bump when a dummy pops
 };
 
 /** Scaled, clamped copy of a pattern (scale 0..1 is the player's rumble strength). */
@@ -41,7 +43,7 @@ export const KICK_MS = 90;
 
 /** @returns { right, left } trigger effects for the current moment. Only the fire (right) trigger is used. */
 export function triggerPlan({ mode, reloading, ammo, capacity, kick = false }) {
-  if (mode !== 'play') return { right: OFF, left: OFF };
+  if (mode !== 'play' && mode !== 'run') return { right: OFF, left: OFF };
   if (kick) return { right: TRIGGER_FEEL.kick, left: OFF };
   if (reloading || ammo <= 0) return { right: TRIGGER_FEEL.locked, left: OFF };
   return { right: ammo >= capacity ? TRIGGER_FEEL.first : TRIGGER_FEEL.second, left: OFF };
@@ -68,6 +70,8 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
     shot(ammoLeft, capacity) { play(barrelPattern(ammoLeft, capacity)); kickUntil = now() + KICK_MS; },
     reload(stage) { if (RUMBLE[stage]) play(stage); },
     kill() { play('kill'); },
+    hurt() { play('hurt'); },
+    swarm() { play('swarm'); },
     dry() { const t = now(); if (t - lastDry < 140) return false; lastDry = t; play('dry'); return true; },     // never a machine-gun of ticks while the trigger is held
     /** Pause the automatic trigger feel (the test buttons use this so a test is not overwritten a frame later). */
     hold(ms) { holdUntil = now() + ms; },

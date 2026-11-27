@@ -35,4 +35,10 @@ export const sfx = {
   hit(k = 1) { tone(220 * (0.8 + Math.random() * 0.3), 90, 0.07, 0.18 * k, 'sine'); burst(0.05, 0.1 * k, 2400, 700, 1.2); },
   pop() { tone(420, 1000, 0.14, 0.22, 'triangle'); burst(0.12, 0.25, 4000, 500); tone(800, 1500, 0.08, 0.12, 'triangle', 0.06); },
   thunk() { tone(90, 50, 0.06, 0.2); },
+  hurt() { tone(180, 60, 0.28, 0.5, 'sawtooth'); burst(0.2, 0.35, 1800, 200, 0.8); tone(90, 40, 0.3, 0.4); },
+  warn() { tone(520, 700, 0.05, 0.05, 'triangle'); },
+  spawn() { tone(300, 620, 0.07, 0.06, 'sine'); },
+  swarm() { tone(140, 110, 0.5, 0.35, 'sawtooth'); tone(147, 118, 0.5, 0.3, 'sawtooth', 0.2); },
+  over() { tone(330, 110, 0.9, 0.4, 'triangle'); tone(220, 70, 1.1, 0.35, 'sine', 0.15); burst(0.4, 0.25, 900, 100); },
+  combo(n = 1) { tone(500 + n * 60, 900 + n * 80, 0.09, 0.14, 'triangle'); },
 };
