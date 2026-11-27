@@ -175,3 +175,23 @@ test('when nothing is accepted: one clear message listing what was tried, no spa
   ds.retry(); ds.set({ right: TRIGGER_FEEL.second }); await tick(40); assert.ok(f.tried.length > n, 'retry sends again');
   ds.setTransport('usb'); ds.set({ right: TRIGGER_FEEL.first }); await tick(40); assert.equal(f.tried.at(-1).id, 0x02, 'a forced layout is used as chosen');
 });
+
+test('smart rumble: pellets from one blast are felt once; more pellets hit harder; a kill pops harder than a hit', () => {
+  const a = rig(); for (let i = 0; i < 2; i++) a.h.hit(false); a.advance(300); const few = a.calls[0][0];
+  const b = rig(); for (let i = 0; i < 8; i++) b.h.hit(false); b.advance(300);
+  assert.equal(a.calls.filter(c => c[3] === 45).length, 1, 'one flush, not one per pellet'); assert.ok(b.calls[0][0] > few);
+  const c = rig(); c.h.hit(false); c.h.hit(true); c.advance(300); assert.ok(c.calls[0][1] > b.calls[0][1], 'pop has a sharper buzz than a thud');
+  const d = rig(); d.h.hit(true, false); assert.deepEqual(d.calls.map(x => x[0]), [0.2], 'smart off: the old small kill bump');
+});
+test('smart rumble: footsteps speed up with speed, stay quiet when standing, and never talk over a shot', () => {
+  const r = rig(); let slow = 0, fast = 0;
+  for (let i = 0; i < 100; i++) { if (r.h.walk(0.3)) slow++; r.advance(16); }
+  const f = rig(); for (let i = 0; i < 100; i++) { if (f.h.walk(1)) fast++; f.advance(16); }
+  assert.ok(fast > slow && slow >= 2, `slow ${slow} fast ${fast}`);
+  const q = rig(); assert.equal(q.h.walk(0), false); assert.equal(q.calls.length, 0);
+  const s = rig(); s.h.shot(1, 2); assert.equal(s.h.walk(1), false, 'busy with the shot'); s.advance(400); assert.equal(s.h.walk(1), true);
+  assert.equal(rig().h.walk(1, false), false, 'off = silent');
+});
+test('smart rumble: wall bumps need a real impact and are rate limited', () => {
+  const r = rig(); assert.equal(r.h.bump(1), false); assert.equal(r.h.bump(6), true); assert.equal(r.h.bump(6), false); r.advance(300); assert.equal(r.h.bump(6), true);
+});

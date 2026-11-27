@@ -14,6 +14,10 @@ export const RUMBLE = {
   insert:  [{ at: 0, strong: 0.35, weak: 0.30, ms: 35 }],
   close:   [{ at: 0, strong: 0.60, weak: 0.50, ms: 45 }, { at: 45, strong: 0.20, weak: 0.20, ms: 40 }],                                                      // the barrels snapping shut: the clearest click
   kill:    [{ at: 0, strong: 0.20, weak: 0.60, ms: 40 }],                                                                                                    // a small bump when a dummy pops
+  // "smart" patterns: chosen by what actually happened, not just by which button was pressed
+  thud:    [{ at: 0, strong: 0.45, weak: 0.20, ms: 40 }, { at: 40, strong: 0.15, weak: 0.05, ms: 40 }],                                                              // pellets landed: a dull impact you feel in the palms
+  pop:     [{ at: 0, strong: 0.55, weak: 0.85, ms: 45 }, { at: 45, strong: 0.35, weak: 0.30, ms: 55 }, { at: 100, strong: 0.12, weak: 0.05, ms: 60 }],             // a dummy bursts: sharper and bigger than a plain hit
+  bump:    [{ at: 0, strong: 0.50, weak: 0.15, ms: 50 }, { at: 50, strong: 0.15, weak: 0.05, ms: 40 }],                                                              // running into a wall
 };
 
 /** Scaled, clamped copy of a pattern (scale 0..1 is the player's rumble strength). */
@@ -54,12 +58,12 @@ export function triggerPlan({ mode, reloading, ammo, capacity, kick = false }) {
  * @param opts     schedule/clear/now injectable for tests; scale() = rumble strength 0..1; triggersOn() = player setting
  */
 export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms) => setTimeout(f, ms), clear = id => clearTimeout(id), now = () => performance.now(), scale = () => 1, triggersOn = () => true } = {}) {
-  let timers = [], kickUntil = 0, lastDry = -1e9, holdUntil = 0;
+  let timers = [], kickUntil = 0, lastDry = -1e9, holdUntil = 0, busyUntil = 0, nextStep = 0, stepSide = 0, hitN = 0, killN = 0, hitTimer = null, lastBump = -1e9;
   const cancel = () => { for (const t of timers) clear(t); timers = []; };
-  function play(name) {                                         // a new pattern replaces whatever was still playing: the latest event is what you should feel
+  function play(name, gain = 1) {                                         // a new pattern replaces whatever was still playing: the latest event is what you should feel
     const fn = typeof rumble === 'function' ? rumble : null; if (!fn) return;
-    cancel();
-    for (const s of rumblePattern(name, scale())) {
+    cancel(); busyUntil = now() + Math.max(0, ...rumblePattern(name, 1).map(s => s.at + s.ms));
+    for (const s of rumblePattern(name, scale() * gain)) {
       if (s.at === 0) fn(s.strong, s.weak, s.ms); else timers.push(schedule(() => fn(s.strong, s.weak, s.ms), s.at));
     }
   }
@@ -68,6 +72,31 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
     shot(ammoLeft, capacity) { play(barrelPattern(ammoLeft, capacity)); kickUntil = now() + KICK_MS; },
     reload(stage) { if (RUMBLE[stage]) play(stage); },
     kill() { play('kill'); },
+    /** A pellet landed (or killed). Hits from one blast arrive over a few frames, so they are collected and felt once:
+     *  a dull thud that grows with how many pellets hit, or a pop that grows with how many dummies burst. */
+    hit(killed = false, smart = true) {
+      if (!smart) { if (killed) play('kill'); return; }
+      hitN++; if (killed) killN++;
+      if (hitTimer !== null) return;
+      hitTimer = schedule(() => {
+        hitTimer = null; const n = hitN, k = killN; hitN = 0; killN = 0;
+        if (k > 0) play('pop', Math.min(1.3, 0.8 + 0.25 * k)); else play('thud', Math.min(1.3, 0.55 + n / 8));
+      }, 45);
+    },
+    /** Running into something. Only felt when it is a real hit, and never as a flurry while grinding along a wall. */
+    bump(impact) {
+      const t = now(); if (impact < 2.5 || t - lastBump < 250) return false; lastBump = t;
+      play('bump', Math.min(1.2, 0.4 + impact / 10)); return true;
+    },
+    /** Footsteps: a soft double-thump rhythm that speeds up and strengthens with speed. Never talks over a shot, a hit or a reload click. */
+    walk(speed01, on = true) {
+      const fn = typeof rumble === 'function' ? rumble : null, t = now();
+      if (!fn || !on || speed01 < 0.15) { nextStep = 0; return false; }
+      if (t < busyUntil || t < nextStep) return false;
+      const k = Math.min(1, speed01), g = scale(); stepSide ^= 1;
+      fn(Math.min(1, (0.06 + 0.16 * k) * g * (stepSide ? 1 : 0.7)), Math.min(1, (0.10 + 0.14 * k) * g), 32);
+      nextStep = t + 440 - 200 * k; return true;
+    },
     dry() { const t = now(); if (t - lastDry < 140) return false; lastDry = t; play('dry'); return true; },     // never a machine-gun of ticks while the trigger is held
     /** Pause the automatic trigger feel (the test buttons use this so a test is not overwritten a frame later). */
     hold(ms) { holdUntil = now() + ms; },
@@ -77,7 +106,7 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
       const plan = triggersOn() ? triggerPlan({ ...state, kick: now() < kickUntil }) : { right: OFF, left: OFF };
       trigger.set(plan); return plan;
     },
-    release() { cancel(); if (trigger && trigger.connected) trigger.release(); },
+    release() { cancel(); if (hitTimer !== null) { clear(hitTimer); hitTimer = null; } if (trigger && trigger.connected) trigger.release(); },
     stop() { cancel(); },
   };
 }

@@ -147,6 +147,7 @@ const haptics = createHaptics({
   rumble: (strong, weak, ms) => { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(strong, weak, ms); },      // always the live pad; only for a controller player
   trigger: dualsense, scale: () => tuning.get('fx.rumbleScale'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
 });
+const smart = () => tuning.get('fx.smartRumble') > 0.5;
 const releaseTriggers = () => dualsense.release();                              // never leave the triggers stiff when the page goes away
 addEventListener('pagehide', releaseTriggers); document.addEventListener('visibilitychange', () => { if (document.hidden) releaseTriggers(); });
 dualsense.autoConnect();                                                        // a controller allowed before reconnects by itself
@@ -178,13 +179,14 @@ function onHit(h) {
   const st = stats.recent.get(h.shot);
   if (h.kind === 'target') {
     const tg = h.ref, v = views.get(tg), r = tg.damage(h.damage);
+    haptics.hit(r.killed, smart());
     stats.hits++; stats.damage += r.dealt; if (st) { st.hits++; st.damage += r.dealt; st.nearest = Math.min(st.nearest, h.dist); }
     v.hit(h.dx, h.dy, h.damage); fx.sparks(h.x, h.y, h.nx, h.ny, '#fff2c4', 2);
     for (let i = 0; i < 2; i++) fx.emit(h.x, 0.9, h.y, h.nx * R2(1, 3) + R2(-1, 1), R2(0.5, 2), h.ny * R2(1, 3) + R2(-1, 1), R2(0.25, 0.4), R2(0.06, 0.11), '#e8c85a', { g: 9, op: 0.95 });
     tg.dmgAcc = (tg.dmgAcc || 0) + r.dealt; tg.dmgT = 0.09; tg.dmgKill = tg.dmgKill || r.killed;
     if (!(tg.sndT > 0)) { audio.sfx.hit(clamp(h.damage / 12, 0.3, 1)); tg.sndT = 0.05; }
     if (r.killed) {
-      stats.kills++; if (st) st.kills++; v.kill(); audio.sfx.pop(); haptics.kill(); pauseT = Math.max(pauseT, P.hitPause);
+      stats.kills++; if (st) st.kills++; v.kill(); audio.sfx.pop(); pauseT = Math.max(pauseT, P.hitPause);
       for (let i = 0; i < 22; i++) { const a = Math.random() * 6.28, sp = R2(2, 6); fx.emit(tg.x, 1, tg.y, Math.cos(a) * sp, R2(2, 6), Math.sin(a) * sp, R2(0.5, 0.9), R2(0.08, 0.16), ['#e8c85a', '#c9a66b', '#fff6e8', '#e85d5d'][i & 3], { g: 14, op: 1 }); }
       fx.ring(tg.x, tg.y, 2.6, '#ffd23f', 0.5);
     }
@@ -206,6 +208,7 @@ function simStep(h) {
   const rad = heroes[selected].radius;
   const impact = resolveWorld(player, v, rad, arena.world);
   for (const t of targets) if (t.alive) circleVsCircle(player, v, rad, t);               // dummies are solid
+  if (smart()) haptics.bump(impact);
   if (impact > 2.5 && player.impact <= 0) { player.impact = 0.15; fx.dust(player.x, player.y, -v.x, -v.y, Math.min(1, impact / 7)); shake = Math.max(shake, Math.min(0.25, impact * 0.025)); }
   player.impact -= h; player.vx = v.x + player.kb.x; player.vy = v.y + player.kb.y; player.speed = Math.hypot(player.vx, player.vy);
 
@@ -421,6 +424,7 @@ function frame(now) {
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
   input.sample(now); menuStep(); readTuning();
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
+  haptics.walk(mode === 'play' && snap.source === 'controller' ? player.speed / Math.max(1, P.maxSpeed) : 0, smart());
   haptics.update({ mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
   shake = Math.max(0, shake - realDt * 3);
   const dtv = Math.max(dt, 1e-4);
