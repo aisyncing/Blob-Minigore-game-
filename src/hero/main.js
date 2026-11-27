@@ -143,9 +143,10 @@ const snap = input.snap;
 
 /* ------------------------------ controller feel: rumble patterns + PS5 adaptive triggers ------------------------------ */
 const dualsense = createDualSense({ onStatus: t => { const el = document.querySelector('#dsStatus'); if (el) el.textContent = t; } });
+const rumbleLevel = k => { const v = tuning.get(k); return v * v; };       // squared: the motors respond steeply, so the slider's low half needs room to be felt
 const haptics = createHaptics({
   rumble: (strong, weak, ms) => { if (!P.rumble || snap.source !== 'controller') return; if (!dualsense.motors(strong, weak, ms)) snap.pad.rumble?.(strong, weak, ms); },   // over the DualSense link when connected (reliable on Bluetooth), else the browser's rumble      // always the live pad; only for a controller player
-  trigger: dualsense, scale: () => tuning.get('fx.rumbleScale'), mix: g => tuning.get(g === 'reload' ? 'fx.rumbleReload' : g === 'walk' ? 'fx.rumbleWalk' : 'fx.rumbleShoot'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
+  trigger: dualsense, scale: () => rumbleLevel('fx.rumbleScale'), mix: g => rumbleLevel(g === 'reload' ? 'fx.rumbleReload' : g === 'walk' ? 'fx.rumbleWalk' : 'fx.rumbleShoot'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
 });
 const smart = () => tuning.get('fx.smartRumble') > 0.5;
 const releaseTriggers = () => dualsense.release();                              // never leave the triggers stiff when the page goes away
