@@ -18,7 +18,7 @@ import { createInput } from '../input/source.js';
 import { createMenuNav, menuCommands } from '../input/menu.js';
 import { createHaptics, TRIGGER_FEEL } from '../input/haptics.js';
 import { createDualSense } from '../input/dualsense.js';
-import { DEFS, PRESETS, tuning } from '../tuning.js';
+import { DEFS, PRESETS, HIDDEN_IN_GAME, tuning } from '../tuning.js';
 import { DESIGNS } from './designs.js';
 import { Hero } from './hero.js';
 import { loadRig } from './rigAsset.js';
@@ -143,10 +143,10 @@ const snap = input.snap;
 
 /* ------------------------------ controller feel: rumble patterns + PS5 adaptive triggers ------------------------------ */
 const dualsense = createDualSense({ onStatus: t => { const el = document.querySelector('#dsStatus'); if (el) el.textContent = t; } });
-const rumbleLevel = k => { const v = tuning.get(k); return v * v; };       // squared: the motors respond steeply, so the slider's low half needs room to be felt
+const rumbleLevel = k => Math.pow(Math.min(10, Math.max(0, tuning.get(k))) / 10, 1.5);       // 0-10 slider; a gentle curve because the motors respond steeply at the low end
 const haptics = createHaptics({
   rumble: (strong, weak, ms) => { if (!P.rumble || snap.source !== 'controller') return; if (!dualsense.motors(strong, weak, ms)) snap.pad.rumble?.(strong, weak, ms); },   // over the DualSense link when connected (reliable on Bluetooth), else the browser's rumble      // always the live pad; only for a controller player
-  trigger: dualsense, scale: () => rumbleLevel('fx.rumbleScale'), mix: g => rumbleLevel(g === 'reload' ? 'fx.rumbleReload' : g === 'walk' ? 'fx.rumbleWalk' : 'fx.rumbleShoot'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
+  trigger: dualsense, scale: () => rumbleLevel('fx.vibAll'), mix: g => rumbleLevel(g === 'reload' ? 'fx.vibReload' : g === 'walk' ? 'fx.vibWalk' : 'fx.vibShoot'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
 });
 const smart = () => tuning.get('fx.smartRumble') > 0.5;
 const releaseTriggers = () => dualsense.release();                              // never leave the triggers stiff when the page goes away
@@ -334,8 +334,8 @@ function addControls(host, defs, openGroups = []) {
   }
   sync.forEach(f => f());
 }
-addControls($('#sliders'), DEFS.filter(d => d.page === 'hero'), ['Shotgun', 'Aim', 'Feedback']);
-addControls($('#inputSliders'), DEFS.filter(d => d.page === undefined && d.group !== 'Feel pad'));
+addControls($('#sliders'), DEFS.filter(d => d.page === 'hero' && !HIDDEN_IN_GAME.has(d.key)), ['Shotgun', 'Aim', 'Feedback']);
+addControls($('#inputSliders'), DEFS.filter(d => d.page === undefined && d.group !== 'Feel pad' && !HIDDEN_IN_GAME.has(d.key)));
 tuning.onChange(() => { sync.forEach(f => f()); readTuning(); updateStats(); audio.setVolume(tuning.get('fx.volume')); });
 audio.setVolume(tuning.get('fx.volume'));
 { const host = $('#presets'); for (const [name, vals] of Object.entries(PRESETS)) { const b = document.createElement('button'); b.textContent = name; b.onclick = () => tuning.apply(vals); host.appendChild(b); } }

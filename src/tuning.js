@@ -38,7 +38,7 @@ export const DEFS = [
   { key: 'gun.minDamage',  page: 'hero', group: 'Shotgun', label: 'Damage at max range',  min: 0,   max: 1,   step: 0.05, def: 0.25 },
   { key: 'gun.pelletSpeed',page: 'hero', group: 'Shotgun', label: 'Pellet speed (u/s)',   min: 20,  max: 120, step: 1,    def: 55 },
   { key: 'gun.interval',   page: 'hero', group: 'Shotgun', label: 'Time between barrels', min: 0.1, max: 0.8, step: 0.01, def: 0.28 },
-  { key: 'gun.reload',     page: 'hero', group: 'Shotgun', label: 'Reload time (s)',      min: 0.3, max: 2.5, step: 0.05, def: 0.95 },
+  { key: 'gun.reload',     page: 'hero', group: 'Shotgun', label: 'Reload time (s)',      min: 0.3, max: 2.5, step: 0.05, def: 0.7 },
   { key: 'gun.capacity',   page: 'hero', group: 'Shotgun', label: 'Shells (double barrel = 2)', min: 1, max: 2, step: 1, def: 2 },
   { key: 'gun.recoil',     page: 'hero', group: 'Shotgun', label: 'Recoil shove (u/s)',   min: 0,   max: 9,   step: 0.1,  def: 4 },
   { key: 'assist.mode',    page: 'hero', group: 'Aim', label: 'Aim help (stick / arrows)', kind: 'select', options: ['Manual', 'Assist', 'Auto-aim'], min: 0, max: 2, step: 1, def: 1 },
@@ -48,15 +48,21 @@ export const DEFS = [
   { key: 'fx.hitPause',    page: 'hero', group: 'Feedback', label: 'Hit pause on kills (s)', min: 0, max: 0.12, step: 0.005, def: 0.03 },
   { key: 'fx.volume',      page: 'hero', group: 'Feedback', label: 'Volume',              min: 0,   max: 1,   step: 0.05, def: 0.6 },
   { key: 'fx.rumble',      page: 'hero', group: 'Feedback', label: 'Controller rumble',   kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
-  { key: 'fx.rumbleScale', page: 'hero', group: 'Feedback', label: 'Rumble: overall',     min: 0,   max: 1,   step: 0.05, def: 0.7 },
-  { key: 'fx.rumbleShoot', page: 'hero', group: 'Feedback', label: 'Rumble: shooting (shots, hits, kills)', min: 0, max: 1, step: 0.05, def: 1 },
-  { key: 'fx.rumbleReload', page: 'hero', group: 'Feedback', label: 'Rumble: reloading', min: 0, max: 1, step: 0.05, def: 0.65 },
-  { key: 'fx.rumbleWalk',  page: 'hero', group: 'Feedback', label: 'Rumble: walking and bumps', min: 0, max: 1, step: 0.05, def: 0.3 },
-  { key: 'fx.smartRumble', page: 'hero', group: 'Feedback', label: 'Smart rumble (hits, kills, footsteps, wall bumps)', kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
+  { key: 'fx.vibAll',    page: 'hero', group: 'Feedback', label: 'Vibration: overall (0-10)',   min: 0, max: 10, step: 0.5, def: 10 },
+  { key: 'fx.vibShoot',  page: 'hero', group: 'Feedback', label: 'Vibration: shooting (0-10)',  min: 0, max: 10, step: 0.5, def: 6.5 },
+  { key: 'fx.vibReload', page: 'hero', group: 'Feedback', label: 'Vibration: reloading (0-10)', min: 0, max: 10, step: 0.5, def: 3 },
+  { key: 'fx.vibWalk',   page: 'hero', group: 'Feedback', label: 'Vibration: walking (0-10)',   min: 0, max: 10, step: 0.5, def: 5 },
+  { key: 'fx.smartRumble', page: 'hero', group: 'Feedback', label: 'Smart vibration (hits, kills, footsteps)', kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
   { key: 'fx.triggers',    page: 'hero', group: 'Feedback', label: 'PS5 adaptive triggers', kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
   { key: 'fx.numbers',     page: 'hero', group: 'Feedback', label: 'Damage numbers',      kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
   { key: 'pad.speed', page: 'lab', group: 'Feel pad', label: 'Top speed (units/s)', min: 2, max: 16, step: 0.1, def: 8 },
 ];
+
+/** Settings that exist but are not shown in the game's panel: they have little effect on how the game plays, so they keep their defaults.
+ *  (The controller lab still shows the stick and trigger ones.) */
+export const HIDDEN_IN_GAME = new Set(['move.turnAccel', 'aim.follow', 'legs.follow', 'anim.squash', 'anim.lean', 'anim.bob', 'anim.stepLen',
+  'cam.tilt', 'cam.follow', 'cam.velLead', 'cam.aimLead', 'gun.pellets', 'gun.bias', 'gun.falloffStart', 'gun.minDamage', 'gun.pelletSpeed', 'gun.capacity',
+  'assist.cone', 'fx.hitPause', 'left.outer', 'left.curve', 'right.outer', 'right.curve', 'trigger.release']);
 
 const STORE = 'blobshooter.tuning.v1';
 const listeners = new Set();

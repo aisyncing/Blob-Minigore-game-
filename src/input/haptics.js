@@ -97,7 +97,7 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
       const fn = typeof rumble === 'function' ? rumble : null;
       if (!fn || !on || speed01 < 0.15 || now() < busyUntil) return false;
       const k = Math.min(1, speed01), g = scale() * mix('walk');
-      fn(Math.min(1, (0.06 + 0.16 * k) * g * (side ? 1 : 0.7)), Math.min(1, (0.10 + 0.14 * k) * g), 32); return true;
+      fn(Math.min(1, (0.02 + 0.06 * k) * g * (side ? 1 : 0.7)), Math.min(1, (0.14 + 0.20 * k) * g * (side ? 1 : 0.8)), 22); return true;   // mostly the small motor: a light patter, not a thump
     },
     dry() { const t = now(); if (t - lastDry < 140) return false; lastDry = t; play('dry'); return true; },     // never a machine-gun of ticks while the trigger is held
     /** Pause the automatic trigger feel (the test buttons use this so a test is not overwritten a frame later). */

@@ -55,9 +55,9 @@ const dry = (await rumbles()).filter(r => r.s === 0 && Math.abs(r.w - 0.35) < 0.
 await page.evaluate(() => { const H = __hero; H.gun.reset(); });
 
 // rumble strength setting and the off switches
-await page.evaluate(() => { __hero.tuning.set('fx.rumbleScale', 0.5); window.__rumble = []; __hero.haptics?.shot; });
+await page.evaluate(() => { __hero.tuning.set('fx.vibAll', 5); window.__rumble = []; __hero.haptics?.shot; });
 await pullOnce();
-await page.waitForFunction(() => window.__rumble.length >= 1); assert.ok((await rumbles())[0].s <= 0.51, 'rumble strength 50% halves the thump'); await page.evaluate(() => __hero.tuning.set('fx.rumbleScale', 1));
+await page.waitForFunction(() => window.__rumble.length >= 1); assert.ok((await rumbles())[0].s <= 0.51, 'rumble strength 50% halves the thump'); await page.evaluate(() => __hero.tuning.set('fx.vibAll', 10));
 await page.evaluate(() => { __hero.gun.reset(); }); await page.waitForTimeout(500); await clearLog(); await page.evaluate(() => __hero.tuning.set('fx.triggers', 0));
 await waitReport("r.data[10] === 0x05"); await clearLog(); await page.evaluate(() => __hero.tuning.set('fx.triggers', 1)); await waitReport("r.data[10] === 0x25");
 

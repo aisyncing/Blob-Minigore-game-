@@ -3,7 +3,7 @@
 //   - each pull fires one barrel (alternating); holding repeats every `interval` seconds
 //   - after the last shell the gun reloads automatically (`reload` seconds); R reloads early
 //   - a trigger press shortly before the gun is ready is remembered (`buffer`), so you never lose a shot to being early
-export const GUN_DEFAULTS = { capacity: 2, interval: 0.28, reload: 0.95, buffer: 0.12 };
+export const GUN_DEFAULTS = { capacity: 2, interval: 0.28, reload: 0.7, buffer: 0.12 };
 
 export function createShotgun(params = {}) {
   let p = { ...GUN_DEFAULTS, ...params };
