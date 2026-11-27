@@ -101,7 +101,7 @@ const sliderEls = {};
   }
   tuning.onChange(k => { if (k === null) Object.values(sliderEls).forEach(f => f()); else sliderEls[k]?.(); });
 }
-$('#bReset').onclick = () => tuning.reset();
+$('#bReset').onclick = () => tuning.reset(d => d.page !== 'hero');      // only what this page shows; the game's settings are kept
 $('#bCopy').onclick = async () => {
   const text = JSON.stringify({ controller: lastPad?.id || 'keyboard', tuning: tuning.snapshot() }, null, 1);
   const box = $('#copyBox'); box.hidden = false; box.value = text; box.select();

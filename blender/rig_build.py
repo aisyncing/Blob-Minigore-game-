@@ -1,6 +1,5 @@
 """Builds the armature, skins the meshes, sets up a review scene. Import from the animation script."""
 import sys, math
-sys.path.insert(0, '/home/user/blob-shooter/blender'); sys.path.insert(0, '/home/user/bl-libs')
 import bpy
 from mathutils import Vector, Matrix
 from rig_model import *

@@ -20,9 +20,23 @@ animation stay together. If you change one, change both.
 - `build_and_export.py`  bakes IK to plain bone keyframes and exports the glb
 
 ## Rebuild
+Run these from anywhere; every path is found relative to this checkout.
 ```bash
-pip install bpy          # Blender as a Python module (Python 3.11 or newer)
-python3 blender/build_and_export.py
+pip install bpy                                 # Blender as a Python module (Python 3.11 or newer)
+python3 blender/build_and_export.py             # writes src/assets/hero_rig.glb (+ .json) in this checkout
+python3 blender/build_and_export.py out/rig.glb # or export somewhere else
 npm run build
 ```
-Reach is checked while posing: every hand target must be reachable with a bend (the longest is 1.07 of 1.18 units).
+If `bpy` is installed somewhere Python does not look by default (for example `pip install --target libs bpy`), point `PYTHONPATH` at it: `PYTHONPATH=libs python3 blender/build_and_export.py`.
+
+## Reach check
+Both arms are checked at every sampled frame of every clip (hold 0-120, fire 0-18, reload 0-60: the same frames that get baked), using the actual solved wrist
+of each arm. The limit is **97% of the arm's full length** (upper arm + forearm = 1.18 units), so a visible bend is always left.
+```bash
+python3 blender/reach_check.py                          # prints the worst frame per clip and arm; exit code 0 = pass, 1 = fail
+python3 blender/reach_check.py --max-extension 0.85     # try a stricter limit to see a failure
+```
+`build_and_export.py` runs the same check first and exits with a failure, writing no file, if the limit is exceeded
+(`--max-extension` also works there). Current worst case: reload frame 8, left arm, 1.088 of 1.180 (92.2%).
+
+Other scripts: `pose_test.py`, `static_test.py`, `close_test.py` render review images into `$BLOB_RENDER_DIR` (default: the system temp folder).

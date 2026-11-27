@@ -1,5 +1,4 @@
 """Sets up IK, poses the rig from the choreography, and (optionally) bakes clips and exports glTF."""
-import sys; sys.path.insert(0, '/home/user/blob-shooter/blender')
 from anim_lib import *
 
 TWIST = dict(L_fore=math.radians(180), R_stock=math.radians(-90))     # hand roll about its own axis: palm up under the forend / palm inward around the stock
@@ -71,3 +70,29 @@ def pose_frame(rig, em, clip, p, key=None):
             if pb.name.startswith(('gunRoot', 'barrels', 'shell', 'index', 'middle', 'ring', 'pinky', 'thumb', 'hand')):
                 pb.keyframe_insert('location', frame=key); pb.keyframe_insert('rotation_quaternion', frame=key); pb.keyframe_insert('rotation_euler', frame=key); pb.keyframe_insert('scale', frame=key)
     bpy.context.view_layer.update()
+
+
+# ------------------------------------------------------------------ reach check (the arms must never be stretched straight)
+CLIPS = [('hold', 120, lambda f, n: f / n), ('fire', 18, lambda f, n: f / FPS), ('reload', 60, lambda f, n: f / n)]     # name, frames, progress at frame f
+MAX_EXTENSION = 0.97          # documented limit: shoulder-to-wrist distance may be at most 97% of upper arm + forearm (a visible bend is always left)
+
+def measure_reach(rig, em, max_extension=MAX_EXTENSION):
+    """Pose every sampled frame of every clip (the same frames that get baked), read the ACTUAL solved wrist of both arms and compare it with the arm's full length.
+    Returns {ok, limit, reach, worst: {...}, rows: [...]} where each row is one clip/arm: its worst frame, distance, extension and how far the wrist is from where the hand was asked to be."""
+    reach = UPPER + FORE; rows = []; worst = None
+    for name, n, pfun in CLIPS:
+        per_arm = {T: None for T, _ in SIDES}
+        for f in range(n + 1):
+            pose_frame(rig, em, name, pfun(f, n)); bpy.context.view_layer.update()
+            for T, _ in SIDES:
+                sh = rig.matrix_world @ rig.pose.bones['upperArm' + T].head; wr = rig.matrix_world @ rig.pose.bones['hand' + T].head
+                d = (wr - sh).length; rec = dict(clip=name, frame=f, arm=T, distance=d, extension=d / reach, miss=(wr - em['ik_' + T].location).length)
+                if per_arm[T] is None or d > per_arm[T]['distance']: per_arm[T] = rec
+                if worst is None or d > worst['distance']: worst = rec
+        rows += [per_arm[T] for T, _ in SIDES]
+    return dict(ok=worst['extension'] <= max_extension, limit=max_extension, reach=reach, worst=worst, rows=rows)
+
+def print_reach(r):
+    print('reach check: arm length %.3f, limit %.0f%% (%.3f)' % (r['reach'], r['limit'] * 100, r['limit'] * r['reach']))
+    for x in r['rows']: print('  %-6s %s arm: worst frame %3d  distance %.3f  (%.1f%%)  wrist %.3f from its target' % (x['clip'], x['arm'], x['frame'], x['distance'], x['extension'] * 100, x['miss']))
+    w = r['worst']; print('worst: %s frame %d, %s arm, %.3f = %.1f%% of full length -> %s' % (w['clip'], w['frame'], w['arm'], w['distance'], w['extension'] * 100, 'PASS' if r['ok'] else 'FAIL (over the %.0f%% limit)' % (r['limit'] * 100)))

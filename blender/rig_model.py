@@ -6,7 +6,6 @@ which is how the three.js hero faces. One Blender unit = one game unit. The char
 V(x, fwd, up) converts game-style numbers (x left, fwd forward, up) into Blender vectors.
 """
 import sys, math
-sys.path.insert(0, '/home/user/bl-libs')
 import bpy, bmesh
 from mathutils import Vector, Matrix
 

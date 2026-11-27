@@ -1,6 +1,5 @@
 """Choreography + IK helpers shared by the animation script. Timing matches src/hero/reload.js exactly."""
 import sys, math
-sys.path.insert(0, '/home/user/blob-shooter/blender'); sys.path.insert(0, '/home/user/bl-libs')
 from rig_build import *
 from mathutils import Quaternion, Euler
 

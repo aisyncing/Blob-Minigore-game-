@@ -61,3 +61,6 @@ body.mode-compare #hint{top:max(58px,calc(env(safe-area-inset-top,0px) + 50px));
   .card{width:auto;flex:1;padding:8px 6px}
   .card b{font-size:12px;gap:4px}
 }
+
+#panel .hint{font-size:12px;line-height:1.45;color:var(--dim);margin:6px 0}
+#panel select{font:inherit;font-size:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:4px 6px}

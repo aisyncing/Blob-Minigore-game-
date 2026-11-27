@@ -48,6 +48,8 @@ export const DEFS = [
   { key: 'fx.hitPause',    page: 'hero', group: 'Feedback', label: 'Hit pause on kills (s)', min: 0, max: 0.12, step: 0.005, def: 0.03 },
   { key: 'fx.volume',      page: 'hero', group: 'Feedback', label: 'Volume',              min: 0,   max: 1,   step: 0.05, def: 0.6 },
   { key: 'fx.rumble',      page: 'hero', group: 'Feedback', label: 'Controller rumble',   kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
+  { key: 'fx.rumbleScale', page: 'hero', group: 'Feedback', label: 'Rumble strength',     min: 0,   max: 1,   step: 0.05, def: 1 },
+  { key: 'fx.triggers',    page: 'hero', group: 'Feedback', label: 'PS5 adaptive triggers', kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
   { key: 'fx.numbers',     page: 'hero', group: 'Feedback', label: 'Damage numbers',      kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
   { key: 'pad.speed', page: 'lab', group: 'Feel pad', label: 'Top speed (units/s)', min: 2, max: 16, step: 0.1, def: 8 },
 ];
@@ -62,7 +64,16 @@ try {
   for (const d of DEFS) if (typeof saved[d.key] === 'number') values[d.key] = Math.min(d.max, Math.max(d.min, saved[d.key]));
 } catch { /* storage unavailable: defaults are fine */ }
 
-function persist() { try { localStorage.setItem(STORE, JSON.stringify(values)); } catch { /* ignore */ } }
+// Writes MERGE into whatever is stored right now (never the whole in-memory object), so a page that was opened earlier cannot wipe
+// settings another page saved since. `drop` lists keys to delete (reset puts them back to the default).
+function persist(keys = [], drop = []) {
+  try {
+    const cur = JSON.parse(localStorage.getItem(STORE) || '{}');
+    for (const k of keys) cur[k] = values[k];
+    for (const k of drop) delete cur[k];
+    localStorage.setItem(STORE, JSON.stringify(cur));
+  } catch { /* ignore */ }
+}
 
 /** Feel presets for the movement trio, so you can compare in one click. */
 export const PRESETS = {
@@ -73,11 +84,12 @@ export const PRESETS = {
 
 export const tuning = {
   get: k => values[k],
-  set(k, v) { values[k] = v; persist(); listeners.forEach(f => f(k, v)); },
-  reset() { for (const d of DEFS) values[d.key] = d.def; persist(); listeners.forEach(f => f(null)); },
+  set(k, v) { values[k] = v; persist([k]); listeners.forEach(f => f(k, v)); },
+  /** Reset to defaults. Pass a filter on the DEFS entries to reset only one page's settings (the lab and the game share storage). */
+  reset(inScope = () => true) { const ks = DEFS.filter(inScope).map(d => d.key); for (const d of DEFS) if (ks.includes(d.key)) values[d.key] = d.def; persist([], ks); listeners.forEach(f => f(null)); },
   onChange: f => { listeners.add(f); return () => listeners.delete(f); },
   snapshot: () => ({ ...values }),
-  apply(obj) { for (const [k, v] of Object.entries(obj)) if (k in values) values[k] = v; persist(); listeners.forEach(f => f(null)); },
+  apply(obj) { const ks = Object.keys(obj).filter(k => k in values); for (const k of ks) values[k] = obj[k]; persist(ks); listeners.forEach(f => f(null)); },
   stick: side => ({ inner: values[side + '.inner'], outer: values[side + '.outer'], curve: values[side + '.curve'] }),
   trigger: () => effectiveTrigger({ press: values['trigger.press'], release: values['trigger.release'] }),   // what the game really uses (release is always below press)
 };

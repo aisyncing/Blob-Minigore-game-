@@ -398,6 +398,8 @@ var DEFS = [
   { key: "fx.hitPause", page: "hero", group: "Feedback", label: "Hit pause on kills (s)", min: 0, max: 0.12, step: 5e-3, def: 0.03 },
   { key: "fx.volume", page: "hero", group: "Feedback", label: "Volume", min: 0, max: 1, step: 0.05, def: 0.6 },
   { key: "fx.rumble", page: "hero", group: "Feedback", label: "Controller rumble", kind: "toggle", min: 0, max: 1, step: 1, def: 1 },
+  { key: "fx.rumbleScale", page: "hero", group: "Feedback", label: "Rumble strength", min: 0, max: 1, step: 0.05, def: 1 },
+  { key: "fx.triggers", page: "hero", group: "Feedback", label: "PS5 adaptive triggers", kind: "toggle", min: 0, max: 1, step: 1, def: 1 },
   { key: "fx.numbers", page: "hero", group: "Feedback", label: "Damage numbers", kind: "toggle", min: 0, max: 1, step: 1, def: 1 },
   { key: "pad.speed", page: "lab", group: "Feel pad", label: "Top speed (units/s)", min: 2, max: 16, step: 0.1, def: 8 }
 ];
@@ -410,9 +412,12 @@ try {
   for (const d of DEFS) if (typeof saved[d.key] === "number") values[d.key] = Math.min(d.max, Math.max(d.min, saved[d.key]));
 } catch {
 }
-function persist() {
+function persist(keys2 = [], drop = []) {
   try {
-    localStorage.setItem(STORE, JSON.stringify(values));
+    const cur = JSON.parse(localStorage.getItem(STORE) || "{}");
+    for (const k of keys2) cur[k] = values[k];
+    for (const k of drop) delete cur[k];
+    localStorage.setItem(STORE, JSON.stringify(cur));
   } catch {
   }
 }
@@ -420,12 +425,14 @@ var tuning = {
   get: (k) => values[k],
   set(k, v) {
     values[k] = v;
-    persist();
+    persist([k]);
     listeners.forEach((f) => f(k, v));
   },
-  reset() {
-    for (const d of DEFS) values[d.key] = d.def;
-    persist();
+  /** Reset to defaults. Pass a filter on the DEFS entries to reset only one page's settings (the lab and the game share storage). */
+  reset(inScope = () => true) {
+    const ks = DEFS.filter(inScope).map((d) => d.key);
+    for (const d of DEFS) if (ks.includes(d.key)) values[d.key] = d.def;
+    persist([], ks);
     listeners.forEach((f) => f(null));
   },
   onChange: (f) => {
@@ -434,8 +441,9 @@ var tuning = {
   },
   snapshot: () => ({ ...values }),
   apply(obj) {
-    for (const [k, v] of Object.entries(obj)) if (k in values) values[k] = v;
-    persist();
+    const ks = Object.keys(obj).filter((k) => k in values);
+    for (const k of ks) values[k] = obj[k];
+    persist(ks);
     listeners.forEach((f) => f(null));
   },
   stick: (side) => ({ inner: values[side + ".inner"], outer: values[side + ".outer"], curve: values[side + ".curve"] }),
@@ -551,7 +559,7 @@ var sliderEls = {};
     else sliderEls[k]?.();
   });
 }
-$("#bReset").onclick = () => tuning.reset();
+$("#bReset").onclick = () => tuning.reset((d) => d.page !== "hero");
 $("#bCopy").onclick = async () => {
   const text = JSON.stringify({ controller: lastPad?.id || "keyboard", tuning: tuning.snapshot() }, null, 1);
   const box = $("#copyBox");

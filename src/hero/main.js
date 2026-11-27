@@ -16,6 +16,8 @@ import { Target } from '../game/targets.js';
 import { mouseAim } from '../input/process.js';
 import { createInput } from '../input/source.js';
 import { createMenuNav, menuCommands } from '../input/menu.js';
+import { createHaptics, TRIGGER_FEEL } from '../input/haptics.js';
+import { createDualSense } from '../input/dualsense.js';
 import { DEFS, PRESETS, tuning } from '../tuning.js';
 import { DESIGNS } from './designs.js';
 import { Hero } from './hero.js';
@@ -45,6 +47,16 @@ $('#app').innerHTML = `
   <div class="stat" id="stats"></div>
   <div id="sliders"></div>
   <details><summary>Controller deadzones</summary><div id="inputSliders"></div></details>
+  <details id="feel"><summary>Controller feel (PS5)</summary>
+    <div class="hint" id="dsStatus"></div>
+    <div class="hint" id="dsRumble"></div>
+    <div class="actions"><button id="bDs">Connect adaptive triggers</button>
+      <select id="dsLayout" title="Only matters over Bluetooth"><option value="auto">Layout: automatic</option><option value="usb">Force USB layout</option><option value="bt-a">Bluetooth layout A</option><option value="bt-b">Bluetooth layout B</option></select></div>
+    <div class="hint">Rumble tests (browser vibration):</div>
+    <div class="actions"><button data-rt="barrel1">1st barrel</button><button data-rt="barrel2">2nd barrel</button><button data-rt="reload">Reload clicks</button><button data-rt="dry">Dry click</button></div>
+    <div class="hint">Trigger tests (hold RT while you try them, 6 seconds each):</div>
+    <div class="actions"><button data-tt="first">1st barrel</button><button data-tt="second">2nd barrel</button><button data-tt="locked">Locked</button><button data-tt="kick">Buzz</button><button data-tt="off">Normal</button></div>
+  </details>
   <h2>Last shot</h2>
   <div class="stat" id="shotStat">Fire at a dummy.</div>
   <div class="actions"><button id="bRange">Reset range</button><button id="bReset">Reset all</button><button id="bCopy">Copy my settings</button><button id="bHide">Hide panel</button></div>
@@ -129,11 +141,21 @@ canvas.addEventListener('pointerdown', e => { lastClient = { x: e.clientX, y: e.
 const input = createInput({ target: canvas, toWorld: e => groundPoint(e.clientX, e.clientY), origin: () => player, lastAim: () => ({ x: player.aimX, y: player.aimY }), tuning });
 const snap = input.snap;
 
+/* ------------------------------ controller feel: rumble patterns + PS5 adaptive triggers ------------------------------ */
+const dualsense = createDualSense({ onStatus: t => { const el = document.querySelector('#dsStatus'); if (el) el.textContent = t; } });
+const haptics = createHaptics({
+  rumble: (strong, weak, ms) => { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(strong, weak, ms); },      // always the live pad; only for a controller player
+  trigger: dualsense, scale: () => tuning.get('fx.rumbleScale'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
+});
+const releaseTriggers = () => dualsense.release();                              // never leave the triggers stiff when the page goes away
+addEventListener('pagehide', releaseTriggers); document.addEventListener('visibilitychange', () => { if (document.hidden) releaseTriggers(); });
+dualsense.autoConnect();                                                        // a controller allowed before reconnects by itself
+
 /* ------------------------------ shooting ------------------------------ */
 const _m = new THREE.Vector3();
 function muzzleReach() { return heroes[selected].muzzleReach; }
 
-function shoot(barrel) {
+function shoot(barrel, ammoLeft = 1) {
   const h = heroes[selected], ax = player.aimX, ay = player.aimY;
   // the visible gun takes the exact aim and position of this shot first, so the flash, the gun and the pellet origin are one and the same place
   h.snapAim(player.x, player.y, Math.atan2(ax, ay)); h.muzzleWorld(_m);
@@ -150,7 +172,7 @@ function shoot(barrel) {
   ck.vx += -ax * P.camKick * 14; ck.vz += -ay * P.camKick * 14;
   // the muzzle flash is drawn where the pellets start
   fx.wad(_m.x, 0.8, _m.z, ax, ay); fx.flash(_m.x, 0.8, _m.z, ax, ay); fx.smoke(_m.x, 0.8, _m.z, ax, ay); fx.sparks(_m.x, _m.z, ax, ay, '#ffd88a', 6);
-  audio.sfx.blast(barrel); if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(0.9, 0.55, 70);
+  audio.sfx.blast(barrel); haptics.shot(ammoLeft, P.capacity);                // first barrel thumps harder than the second; the trigger buzzes briefly
 }
 function onHit(h) {
   const st = stats.recent.get(h.shot);
@@ -162,7 +184,7 @@ function onHit(h) {
     tg.dmgAcc = (tg.dmgAcc || 0) + r.dealt; tg.dmgT = 0.09; tg.dmgKill = tg.dmgKill || r.killed;
     if (!(tg.sndT > 0)) { audio.sfx.hit(clamp(h.damage / 12, 0.3, 1)); tg.sndT = 0.05; }
     if (r.killed) {
-      stats.kills++; if (st) st.kills++; v.kill(); audio.sfx.pop(); pauseT = Math.max(pauseT, P.hitPause);
+      stats.kills++; if (st) st.kills++; v.kill(); audio.sfx.pop(); haptics.kill(); pauseT = Math.max(pauseT, P.hitPause);
       for (let i = 0; i < 22; i++) { const a = Math.random() * 6.28, sp = R2(2, 6); fx.emit(tg.x, 1, tg.y, Math.cos(a) * sp, R2(2, 6), Math.sin(a) * sp, R2(0.5, 0.9), R2(0.08, 0.16), ['#e8c85a', '#c9a66b', '#fff6e8', '#e85d5d'][i & 3], { g: 14, op: 1 }); }
       fx.ring(tg.x, tg.y, 2.6, '#ffd23f', 0.5);
     }
@@ -173,7 +195,7 @@ function onHit(h) {
 }
 
 /* ------------------------------ simulation (fixed 120 Hz) ------------------------------ */
-let shake = 0;
+let shake = 0, prevFire = false;
 function simStep(h) {
   if (mode !== 'play') { input.consumeTap(); return; }      // taps made on menus must not fire a shot when play starts
   const v = player.v; stepVelocity(v, snap.move, P, h);
@@ -197,11 +219,13 @@ function simStep(h) {
 
   // the gun
   gun.setParams({ capacity: P.capacity, interval: P.interval, reload: P.reload });      // a changed reload time only applies to the NEXT reload
+  if (snap.fire && !prevFire && (gun.reloading || gun.state.ammo <= 0)) haptics.dry();       // pulling a trigger that cannot fire: a small dry tick
+  prevFire = snap.fire;
   const reloadKey = input.keys.has('KeyR') || !!snap.buttons[2]?.pressed;
   for (const e of gun.update(h, { fire: snap.fire, reload: reloadKey })) {
-    if (e.type === 'shot') shoot(e.barrel);
+    if (e.type === 'shot') shoot(e.barrel, e.ammoLeft);
     else if (e.type === 'reloadStart') audio.sfx.open();
-    else if (e.type === 'reloadDone') { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(0.2, 0.3, 30); }
+    else if (e.type === 'reloadDone') haptics.reload('grab');                     // a tiny tick: the gun is ready
   }
   input.consumeTap();                                        // this step has now seen any tap; fire falls back to the real held state
   pellets.step(h, arena.world, targets, onHit);
@@ -214,7 +238,8 @@ function simStep(h) {
 // the hero reports each beat of the reload animation; sounds only play for the hero you are actually controlling
 for (const h of heroes) h.onReloadStage = (stage, who) => {
   if (mode !== 'play' || who !== heroes[selected]) return;
-  if (stage === 'eject') audio.sfx.eject(); else if (stage === 'grab') audio.sfx.grab(); else if (stage === 'insert') audio.sfx.insert(); else if (stage === 'close') { audio.sfx.close(); if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(0.2, 0.3, 30); }
+  if (stage === 'eject') audio.sfx.eject(); else if (stage === 'grab') audio.sfx.grab(); else if (stage === 'insert') audio.sfx.insert(); else if (stage === 'close') audio.sfx.close();
+  haptics.reload(stage);                                                       // each beat of the reload has its own click, building toward the close
 };
 
 /* ------------------------------ compare-stage demo motion ------------------------------ */
@@ -234,13 +259,16 @@ function buildCards() {
 function choose(i) {
   selected = i; [...$('#cards').children].forEach((c, k) => c.classList.toggle('sel', k === i));
   heroes.forEach((h, k) => h.setVisible(mode === 'compare' || k === i)); pick.position.x = (i - 1) * 4.6;
+  updateModeButton();
   if (mode === 'play') {
     heroes[i].legYaw = heroes[i].aimYaw = Math.atan2(player.aimX, player.aimY);
     heroes[i].reloadPrev = gun.progress;     // pick the reload up where it is, don't replay its earlier beats
   }
 }
+// the button always names the hero that is selected right now, however it was selected (card, 1/2/3, controller)
+function updateModeButton() { $('#bMode').textContent = mode === 'compare' ? `Play as ${heroes[selected].d.name}` : 'Compare designs'; }
 function setMode(m) {
-  mode = m; $('#bMode').textContent = m === 'compare' ? `Play as ${heroes[selected].d.name}` : 'Compare designs';
+  mode = m; updateModeButton();
   arena.setVisible(m === 'play'); showGroup.visible = m === 'compare'; aimGroup.visible = cross.visible = m === 'play'; tracer.visible = m === 'play';
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
   if (m === 'play') { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
@@ -310,7 +338,7 @@ function updateStats() {
   $('#stats').innerHTML = `to top speed <b>${fmt(s.timeToTop, 2)} s</b> · stop <b>${fmt(s.stopTime, 2)} s</b> (<b>${fmt(s.stopDistance, 2)}</b> u)<br>reverse <b>${fmt(s.reverseTime, 2)} s</b> · arena crossing <b>${fmt(48 / P.maxSpeed, 1)} s</b>`;
 }
 updateStats();
-$('#bReset').onclick = () => tuning.reset();
+$('#bReset').onclick = () => tuning.reset(d => d.page !== 'lab');       // only what this page shows; the lab's pad settings are kept
 // Reset range: everything that belongs to the range session goes together. In-flight pellets must go too, or they would land after the
 // reset and put hits, damage and kills back into a session that just said zero.
 function resetRange() {
@@ -321,6 +349,25 @@ function resetRange() {
   updateDiag();
 }
 $('#bRange').onclick = resetRange;
+
+/* controller feel panel */
+{
+  const status = t => { $('#dsStatus').textContent = t; };
+  status(dualsense.supported
+    ? 'Adaptive triggers: not connected. Best with a USB cable: plug the controller in, press Connect, and pick the DualSense in the list. Bluetooth may work too: try the layouts and the tests below.'
+    : 'Adaptive triggers need WebHID, which this browser does not have (use Chrome or Edge). Rumble still works.');
+  $('#bDs').onclick = async () => { audio.unlock(); await dualsense.connect(); };
+  $('#dsLayout').onchange = e => dualsense.setTransport(e.target.value);
+  $('#feel').addEventListener('toggle', () => { $('#dsRumble').textContent = snap.pad.connected ? (snap.pad.rumble ? 'Browser rumble: available for this controller.' : 'Browser rumble: not available.') : 'Press a button on the controller so the browser can see it.'; });
+  for (const b of document.querySelectorAll('[data-rt]')) b.onclick = () => {
+    const k = b.dataset.rt; if (k === 'reload') { [['eject', 0], ['grab', 220], ['insert', 520], ['close', 820]].forEach(([n, t]) => setTimeout(() => haptics.reload(n), t)); } else if (k === 'dry') haptics.play('dry'); else haptics.play(k);
+    $('#dsRumble').textContent = snap.pad.connected && snap.pad.rumble ? 'Sent to the controller.' : 'No controller rumble available: press a button on the controller first.';
+  };
+  for (const b of document.querySelectorAll('[data-tt]')) b.onclick = () => {
+    if (!dualsense.connected) { status('Connect adaptive triggers first (button above).'); return; }
+    haptics.hold(6000); dualsense.set({ right: TRIGGER_FEEL[b.dataset.tt], left: { effect: 'off' } });
+  };
+}
 $('#bCopy').onclick = async () => {
   const text = JSON.stringify({ design: heroes[selected].d.name, tuning: tuning.snapshot() }, null, 1); const box = $('#copyBox'); box.hidden = false; box.value = text; box.select();
   try { await navigator.clipboard.writeText(text); $('#bCopy').textContent = 'Copied!'; } catch { $('#bCopy').textContent = 'Select and copy below'; } setTimeout(() => ($('#bCopy').textContent = 'Copy my settings'), 2000);
@@ -374,6 +421,7 @@ function frame(now) {
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
   input.sample(now); menuStep(); readTuning();
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
+  haptics.update({ mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
   shake = Math.max(0, shake - realDt * 3);
   const dtv = Math.max(dt, 1e-4);
 

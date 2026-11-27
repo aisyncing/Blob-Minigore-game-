@@ -1,11 +1,20 @@
 """Builds the rig, animates the three clips with IK, bakes them to plain bone keyframes and exports hero_rig.glb."""
-import sys, json; sys.path.insert(0, '/home/user/blob-shooter/blender')
+import json
+import os, sys
+HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)      # everything is found relative to this checkout
+sys.path.insert(0, HERE)
 from anim import *
 
-OUT = sys.argv[1] if len(sys.argv) > 1 else '/home/user/blob-shooter/src/assets/hero_rig.glb'
+import argparse
+ap = argparse.ArgumentParser(description='Build the hero rig and export it as glTF.'); ap.add_argument('out', nargs='?', help='output .glb path (default: src/assets/hero_rig.glb in this checkout)')
+ap.add_argument('--max-extension', type=float, default=MAX_EXTENSION, help='reach limit as a fraction of arm length (default %.2f)' % MAX_EXTENSION)
+ARGS = ap.parse_args()
+OUT = os.path.abspath(ARGS.out) if ARGS.out else os.path.join(ROOT, 'src', 'assets', 'hero_rig.glb')     # default: this checkout's src/assets; pass a path to export elsewhere
 rig, parts, B = build_rig(); em = setup_ik(rig, B)
+report = measure_reach(rig, em, ARGS.max_extension); print_reach(report)
+if not report['ok']:
+    print('Reach check failed: nothing was exported.'); sys.exit(1)       # a stretched pose must never be shipped
 sc = bpy.context.scene; sc.render.fps = FPS
-CLIPS = [('hold', 120, lambda f, n: f / n), ('fire', 18, lambda f, n: f / FPS), ('reload', 60, lambda f, n: f / n)]
 rig.animation_data_create()
 for name, n, pfun in CLIPS:
     rig.animation_data.action = None
@@ -27,7 +36,7 @@ for e in em.values(): bpy.data.objects.remove(e)
 bpy.ops.object.select_all(action='DESELECT')
 for o in parts: o.select_set(True)
 bpy.context.view_layer.objects.active = rig
-import os; os.makedirs(os.path.dirname(OUT), exist_ok=True)
+os.makedirs(os.path.dirname(OUT), exist_ok=True)
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, export_animations=True, export_animation_mode='NLA_TRACKS',
                           export_skins=True, export_yup=True, export_apply=False, export_force_sampling=True, export_optimize_animation_size=False)
 meta = dict(muzzle_fwd=MUZZLE_FWD, gun_fwd=GUN_FWD, gun_scale=GUN_S, gun_up=GUN_ROOT.z, hinge_fwd=HINGE_FWD, open_angle=OPEN_ANGLE, shoulder=SHOULDER,
