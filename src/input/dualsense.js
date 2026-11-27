@@ -117,7 +117,13 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
         const got = await hid.requestDevice({ filters: PRODUCTS.map(productId => ({ vendorId: SONY, productId })) });
         if (!got.length) { status('No controller was chosen.'); return false; }
         await attach(got[0]); return true;
-      } catch (e) { status('Could not connect: ' + (e?.message || e)); return false; }
+      } catch (e) {
+        const m = String(e?.message || e);
+        status(/permissions policy|not allowed|disallowed/i.test(m)
+          ? 'This page is embedded, and browsers block controller access (WebHID) inside embedded pages. Open the game as its own file (dist/hero.html, double-click) and press Connect there. Rumble still works here.'
+          : 'Could not connect: ' + m);
+        return false;
+      }
     },
     async autoConnect() {                                              // a controller you allowed before reconnects without a click
       if (!supported) return false;

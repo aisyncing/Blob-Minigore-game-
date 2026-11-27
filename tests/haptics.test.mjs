@@ -143,3 +143,8 @@ test('failures never throw: cancelled picker, send error, unplugged, and no WebH
   const gone = fakeHid(); const g = createDualSense({ hid: gone.hid }); await g.connect(); gone.fire('disconnect', { device: gone.dev }); assert.equal(g.connected, false); g.set({ right: TRIGGER_FEEL.first });   // no throw
   const m3 = []; const nohid = createDualSense({ hid: undefined, onStatus: m => m3.push(m) }); assert.equal(nohid.supported, false); assert.equal(await nohid.connect(), false); assert.match(m3.at(-1), /WebHID/); nohid.set({}); await nohid.release();
 });
+
+test('an embedded page (WebHID blocked by permissions policy) gets a clear explanation, not a raw error', async () => {
+  const f = fakeHid(); f.hid.requestDevice = async () => { throw new Error("Failed to execute 'requestDevice' on 'HID': Access to the feature \"hid\" is disallowed by permissions policy."); };
+  const m = []; assert.equal(await createDualSense({ hid: f.hid, onStatus: t => m.push(t) }).connect(), false); assert.match(m.at(-1), /embedded.*dist\/hero\.html/);
+});
