@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeTrigger, buildReport, crc32, BT_LAYOUTS } from '../src/input/dualsense.js';
-import { RUMBLE, rumblePattern, barrelPattern, triggerPlan, TRIGGER_FEEL, createHaptics, KICK_MS, buildFeel, DEFAULT_FEEL, rumbleCategory } from '../src/input/haptics.js';
+import { RUMBLE, rumblePattern, barrelPattern, triggerPlan, TRIGGER_FEEL, createHaptics, KICK_MS, buildFeel, DEFAULT_FEEL, rumbleCategory, stepPattern } from '../src/input/haptics.js';
 
 const hex = u => [...u].map(v => v.toString(16).padStart(2, '0')).join(' ');
 
@@ -206,4 +206,41 @@ test('each kind of event has its own vibration setting', () => {
   assert.equal(rumbleCategory('barrel1'), 'shot'); assert.equal(rumbleCategory('barrel2'), 'shot'); for (const n of ['eject', 'grab', 'insert', 'close', 'dry']) assert.equal(rumbleCategory(n), 'reload');
   assert.equal(rumbleCategory('hurt'), 'hurt'); assert.equal(rumbleCategory('kill'), 'kill'); assert.equal(rumbleCategory('swarm'), 'world');
   const r = rig({ scale: name => (name === 'hurt' ? 0.25 : 1) }); r.h.hurt(); r.advance(10); assert.equal(r.calls[0][0], 0.25); r.h.shot(1, 2); r.advance(10); assert.equal(r.calls.at(-1)[0] > 0.25, true, 'a shot is not scaled by the hurt setting');
+});
+
+/* ---- pistol and SMG feel (a console-shooter style: a crisp crack, and a rattle with a humming trigger) */
+test('the pistol cracks once per shot with a short tail; the SMG taps lightly so a stream of shots rattles', () => {
+  const pist = rumblePattern('pistol'), smg = rumblePattern('smg');
+  assert.ok(Math.max(...pist.map(x => x.strong)) > Math.max(...smg.map(x => x.strong)) * 1.8, 'the pistol hits harder per shot');
+  assert.ok(pist.at(-1).at + pist.at(-1).ms < 120, 'and is over before the next pull'); assert.ok(smg[0].ms <= 40, 'an SMG tap is shorter than the gap between its shots (75 ms)');
+  assert.ok(smg[0].weak > smg[0].strong, 'the SMG rides the light high-frequency motor');
+});
+test('a stream of SMG shots keeps the rumble going without piling up timers', () => {
+  const r = rig(); for (let i = 0; i < 20; i++) { r.h.fire('smg', 30 - i, 30); r.advance(75); } assert.equal(r.calls.length, 20, 'one tap per shot');
+});
+test('weapons pick their trigger feel: pistol click, SMG hum, locked when empty, kick only for the pistol', () => {
+  const feel = buildFeel(), st = { mode: 'run', reloading: false, ammo: 5, capacity: 12, feel };
+  assert.deepEqual(triggerPlan({ ...st, weapon: 'pistol' }).right, feel.pistol); assert.equal(feel.pistol.effect, 'weapon');
+  assert.deepEqual(triggerPlan({ ...st, weapon: 'smg' }).right, feel.smg); assert.equal(feel.smg.effect, 'vibration');
+  assert.deepEqual(triggerPlan({ ...st, weapon: 'pistol', kick: true }).right, feel.kick); assert.deepEqual(triggerPlan({ ...st, weapon: 'smg', kick: true }).right, feel.smg, 'no kick fighting the hum');
+  for (const weapon of ['pistol', 'smg']) { assert.deepEqual(triggerPlan({ ...st, weapon, ammo: 0 }).right, feel.locked); assert.deepEqual(triggerPlan({ ...st, weapon, reloading: true }).right, feel.locked); }
+});
+test('the SMG hum starts where the shot fires and follows the settings', () => {
+  const f = buildFeel({ press: 0.6, smgBuzz: 7, smgFreq: 40 }); assert.equal(f.smg.position, 6); assert.equal(f.smg.amplitude, 7); assert.equal(f.smg.frequency, 40);
+  assert.deepEqual(buildFeel({ smgBuzz: 0 }).smg, { effect: 'off' }); for (const e of Object.values(buildFeel({ smgBuzz: 99, smgFreq: 9999, pistol: 99 }))) { const b = encodeTrigger(e); assert.equal(b.length, 11); assert.ok([...b].every(v => v >= 0 && v <= 255)); }
+});
+test('a footstep is stronger the faster you go, and the feet alternate motors', () => {
+  const slow = stepPattern(0, 0.2)[0], fast = stepPattern(0, 1)[0];
+  assert.ok(fast.strong > slow.strong * 1.8 && fast.ms >= slow.ms, 'harder and a touch longer at speed');
+  const L = stepPattern(0, 0.8)[0], Rt = stepPattern(1, 0.8)[0]; assert.ok(L.strong > L.weak, 'left foot: the heavy motor'); assert.ok(Rt.weak > Rt.strong, 'right foot: the light motor');
+  for (const sf of [-1, 0, 0.5, 1, 7, NaN]) for (const side of [0, 1]) for (const x of stepPattern(side, sf)) assert.ok(x.strong >= 0 && x.strong <= 1 && x.weak >= 0 && x.weak <= 1 && x.ms > 0);
+});
+test('every footfall rumbles, scaled by the footstep setting, and one never cuts into a shot that is still playing', () => {
+  const r = rig({ scale: name => (name === 'step' ? 0.5 : 1) }); r.h.step(0, 1); r.advance(1); assert.equal(r.calls.length, 1); assert.ok(Math.abs(r.calls[0][0] - stepPattern(0, 1)[0].strong * 0.5) < 0.011, 'scaled by the setting');
+  r.advance(200); const n = r.calls.length; r.h.fire('pistol', 5, 12); r.advance(30); r.h.step(1, 1); assert.equal(r.calls.length, n + 1, 'the pistol shot, but the step was held back');
+  r.advance(200); r.h.step(1, 1); assert.equal(r.calls.length, n + 3, 'steps work again once it is over (the pistol played both of its segments, then the step)');
+});
+test('footstep settings: category and a zero setting silences them', () => {
+  assert.equal(rumbleCategory('step'), 'move'); assert.equal(rumbleCategory('pistol'), 'shot'); assert.equal(rumbleCategory('smg'), 'shot');
+  const r = rig({ scale: () => 0 }); r.h.step(0, 1); r.advance(5); assert.ok(r.calls.every(c => c[0] === 0 && c[1] === 0), 'silent');
 });

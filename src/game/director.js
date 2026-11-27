@@ -6,7 +6,7 @@
 import { KINDS } from './crowd.js';
 
 export const DIRECTOR = {
-  startCap: 2.5, capPerSec: 0.13, maxCap: 80,              // how much danger may be alive at once, over time
+  startCap: 2.5, capPerSec: 0.2, maxCap: 80,              // how much danger may be alive at once, over time
   gapStart: 2.4, gapMin: 0.3, gapDrop: 0.008,           // seconds between spawns, shrinking
   telegraph: 1.1, swarmTelegraph: 1.5,                    // warning time before a spawn pops in
   swarmEvery: 35, swarmJitter: 6, firstSwarm: 50,

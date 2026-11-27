@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Crowd, KINDS, EMERGE, gaitPulse } from '../src/game/crowd.js';
 import { createDirector, pickSpawn, spawnTable, DIRECTOR } from '../src/game/director.js';
-import { runAim, createLock, turnToward } from '../src/game/autoaim.js';
+import { runAim, createLock, turnToward, aimError } from '../src/game/autoaim.js';
 import { createRun, createSession, RUN, speedRamp } from '../src/game/run.js';
 import { DEFS } from '../src/tuning.js';
 import { buildWorld, BOUNDS } from '../src/game/layout.js';
@@ -247,4 +247,17 @@ test('killing things through the session scores and splits', () => {
 });
 test('reset starts a fresh run', () => {
   const s = createSession({ world: empty, bounds: BOUNDS }); s.crowd.spawn('furry', 0, 1, 1); s.run.kill(10); s.reset(); assert.equal(s.run.score, 0); assert.equal(s.crowd.list.length, 0); assert.equal(s.run.hp, 3);
+});
+
+test('the aim error is the angle between two directions, whichever way round it is', () => {
+  assert.ok(aimError({ x: 1, y: 0 }, { x: 1, y: 0 }) < 1e-9); assert.ok(Math.abs(aimError({ x: 1, y: 0 }, { x: 0, y: 1 }) - Math.PI / 2) < 1e-9);
+  assert.ok(Math.abs(aimError({ x: 0, y: 1 }, { x: 1, y: 0 }) - Math.PI / 2) < 1e-9); assert.ok(Math.abs(aimError({ x: 1, y: 0 }, { x: -1, y: 0 }) - Math.PI) < 1e-9);
+});
+test('turning toward a target reaches a firing-ready aim in about a tenth of a second, so the gate costs almost nothing', () => {
+  let cur = { x: 1, y: 0 }; const goal = { x: -1, y: 0.0001 }; let steps = 0;                                  // the worst case: a half turn
+  while (aimError(cur, goal) >= 0.12 && steps < 400) { cur = turnToward(cur, goal, 30, 1 / 120); steps++; }
+  assert.ok(steps / 120 < 0.13, `${(steps / 120).toFixed(3)} s for a half turn`);
+});
+test('the run ignores any explicit aim: a runAim call with the right stick zeroed still locks the nearest furry', () => {
+  const a = runAim(P(), { x: 0, y: 0 }, walk0, true, [E(0, 5), E(7, 0)], empty); assert.equal(a.source, 'auto'); assert.ok(a.y > 0.99);
 });

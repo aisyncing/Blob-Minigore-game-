@@ -10,6 +10,7 @@ import { buildShell } from './gun.js';
 import { cloneRig } from './rigAsset.js';
 import { reloadPose, crossed, smooth as ease } from './reload.js';
 import { toon, clamp, R2 } from '../engine/stage.js';
+import { buildWeaponModel, torsoToGunRoot } from './weaponModels.js';
 
 const _v = new THREE.Vector3();
 
@@ -26,7 +27,12 @@ export class Hero {
     for (const name of ['hold', 'fire', 'reload']) { const a = this.mixer.clipAction(rig.clips[name]); a.play(); a.paused = true; a.setEffectiveWeight(name === 'hold' ? 1 : 0); this.act[name] = a; }
     this.dur = { hold: rig.clips.hold.duration, fire: rig.clips.fire.duration, reload: rig.clips.reload.duration };
     this.muzzleBone = this.rig.getObjectByName('muzzle'); this.chamberBones = [this.rig.getObjectByName('chamberL'), this.rig.getObjectByName('chamberR')];
-    this.muzzleReach = this.meta.muzzle_fwd; this.fireT = 99; this.wReload = 0;
+    this.fireT = 99; this.wReload = 0;
+    // the pistol and the SMG ride on the same gun bone as the authored shotgun, so the arms and the fire kick work for all three
+    this.weapon = 'shotgun'; this.fireSpeed = 1; this.fireWeight = 1; this.models = {};
+    this.mount = new THREE.Group(); this.mount.matrixAutoUpdate = false; this.mount.matrix.copy(torsoToGunRoot()); this.rig.getObjectByName('gunRoot').add(this.mount);
+    for (const k of ['pistol', 'smg']) { const m = buildWeaponModel(k); m.setVisible(false); this.mount.add(m.group); this.models[k] = m; }
+    this.shotgunParts = []; this.rig.traverse(o => { if (o.isMesh && /^(gunBarrels|gunStock)/.test(o.name)) this.shotgunParts.push(o); });
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.85, 24), new THREE.MeshBasicMaterial({ color: '#050a08', transparent: true, opacity: 0.35, depthWrite: false }));
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.03; this.root.add(this.shadow);
     // belt of spare shells around the waist; the free hand fetches from the left-front slots during a reload
@@ -86,6 +92,16 @@ export class Hero {
     if (h.age > 12) { m.removeFromParent(); this.lostHat = null; }
   }
   get radius() { return this.d.radius; }
+  /** How far in front of the torso the muzzle is, for the current weapon. */
+  get muzzleReach() { return this.weapon === 'shotgun' ? this.meta.muzzle_fwd : this.models[this.weapon].muzzleReach; }
+  /** 'shotgun' | 'pistol' | 'smg'. cfg: { fireSpeed, fireWeight } how fast and how strongly the authored fire kick plays (fast guns get a short, light kick). */
+  setWeapon(id, cfg = {}) {
+    this.weapon = id; const sg = id === 'shotgun';
+    for (const m of this.shotgunParts) m.visible = sg;
+    this.belt.visible = sg;
+    for (const [k, m] of Object.entries(this.models)) m.setVisible(k === id);
+    this.fireSpeed = cfg.fireSpeed ?? 1; this.fireWeight = cfg.fireWeight ?? 1; this.reloadPrev = -1;
+  }
 
   /**
    * s: { x, y, vx, vy, speed, aimYaw|null }, p: tuning (maxSpeed, aimFollow, legsFollow, squash, lean, bob, stepLen)
@@ -133,17 +149,19 @@ export class Hero {
     // arms + gun: scrub the authored clips. Reload progress comes straight from the gun's state, so animation, sounds and ammo never drift apart.
     const rl = s.reload ?? -1, pose = reloadPose(rl);
     const need = s.spent ?? [true, true], needN = (need[0] ? 1 : 0) + (need[1] ? 1 : 0);     // which chambers are empty: that is all this reload ejects, fetches and loads
-    for (const stage of crossed(this.reloadPrev, rl)) this.#reloadStage(stage, need);
+    const sg = this.weapon === 'shotgun';
+    for (const stage of crossed(this.reloadPrev, rl)) { if (sg) this.#reloadStage(stage, need); else this.onReloadStage?.(stage, this); }   // the sounds and clicks follow the same stages for every gun
     this.reloadPrev = rl;
     this.fireT += dt;
-    this.wReload += ((rl >= 0 ? 1 : 0) - this.wReload) * smooth(40, dt);                       // blend in/out over a few frames; the poses match at both ends anyway
-    const wFire = this.fireT < this.dur.fire ? 1 : 0, wR = this.wReload, wF = (1 - wR) * wFire, wH = 1 - wR - wF;
+    this.wReload += ((sg && rl >= 0 ? 1 : 0) - this.wReload) * smooth(40, dt);       // only the shotgun uses the authored reload clip; the others reload with their own motion                       // blend in/out over a few frames; the poses match at both ends anyway
+    const ft = this.fireT * this.fireSpeed, wFire = ft < this.dur.fire ? this.fireWeight : 0, wR = this.wReload, wF = (1 - wR) * wFire, wH = 1 - wR - wF;
     const set = (name, w, t) => { const a = this.act[name]; a.setEffectiveWeight(Math.max(0, w)); a.time = clamp(t, 0, this.dur[name] - 1e-3); };
-    set('reload', wR, Math.max(0, rl) * this.dur.reload); set('fire', wF, this.fireT); set('hold', wH, ((this.t % this.dur.hold) + this.dur.hold) % this.dur.hold);
+    set('reload', wR, Math.max(0, rl) * this.dur.reload); set('fire', wF, ft); set('hold', wH, ((this.t % this.dur.hold) + this.dur.hold) % this.dur.hold);
     this.mixer.update(0);
+    this.models[this.weapon]?.update(dt, rl);
     this.rig.position.y = bob * 0.5;
     this.handShellsHidden = !pose.shellsInHand;
-    this.carried.forEach((c, i) => { if (c) c.visible = !!need[i]; });
+    this.carried.forEach((c, i) => { if (c) c.visible = sg && !!need[i]; });
     const taken = this.beltByReach.slice(0, needN);
     for (const b of this.beltShells) b.sh.visible = !(pose.beltTaken && taken.includes(b));
     this.shadow.scale.setScalar(1 + this.s * 0.2);
@@ -168,7 +186,7 @@ export class Hero {
   }
 
   /** Pull the trigger visually: plays the authored fire clip (recoil of gun and arms). */
-  fire() { this.fireT = 0; }
+  fire() { this.fireT = 0; this.models[this.weapon]?.kick(); }
 
   /**
    * Put the visible hero exactly where the simulation says it is, aimed along `yaw`, right now. Called at the instant of firing so the gun,
@@ -178,5 +196,5 @@ export class Hero {
   snapAim(x, y, yaw) { this.aimYaw = yaw; this.root.position.set(x, 0, y); this.torso.rotation.y = yaw; this.root.updateMatrixWorld(true); }
 
   /** World position of the muzzle (where the pellets and the flash start). */
-  muzzleWorld(out = new THREE.Vector3()) { this.root.updateMatrixWorld(true); return this.muzzleBone.getWorldPosition(out); }
+  muzzleWorld(out = new THREE.Vector3()) { this.root.updateMatrixWorld(true); return (this.models[this.weapon]?.muzzle ?? this.muzzleBone).getWorldPosition(out); }
 }

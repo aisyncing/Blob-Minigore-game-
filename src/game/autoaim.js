@@ -43,6 +43,9 @@ export function runAim(origin, explicit, walk, fire, enemies, world, { range = 1
   return { x: 0, y: 0, aiming: false, target: lock.target, source: 'none' };
 }
 
+/** The angle in radians between two aim directions. */
+export const aimError = (a, b) => Math.abs(Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y));
+
 /** Turn an aim direction toward a goal at a capped rate (rad/s), ignoring sub-degree wobble so the hero never shivers. */
 export function turnToward(cur, goal, maxRate, dt) {
   const a = Math.atan2(cur.x, cur.y), b = Math.atan2(goal.x, goal.y);

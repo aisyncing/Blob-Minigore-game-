@@ -24,7 +24,8 @@ import { Hero } from './hero.js';
 import { loadRig } from './rigAsset.js';
 import { DummyView } from './dummy.js';
 import { createSession } from '../game/run.js';
-import { runAim, createLock, turnToward } from '../game/autoaim.js';
+import { runAim, createLock, turnToward, aimError } from '../game/autoaim.js';
+import { WEAPONS, weaponParams, weaponForWave } from '../game/weapons.js';
 import { createFurries } from './furries.js';
 import { createHud } from './hud.js';
 import { createPanelNav } from './panelNav.js';
@@ -58,9 +59,9 @@ $('#app').innerHTML = `
     <div class="actions"><button id="bDs">Connect adaptive triggers</button>
       <select id="dsLayout" title="Only matters over Bluetooth"><option value="auto">Layout: automatic</option><option value="usb">Force USB layout</option><option value="bt-a">Bluetooth layout A</option><option value="bt-b">Bluetooth layout B</option></select></div>
     <div class="hint">Rumble tests (browser vibration):</div>
-    <div class="actions"><button data-rt="barrel1">1st barrel</button><button data-rt="barrel2">2nd barrel</button><button data-rt="reload">Reload clicks</button><button data-rt="dry">Dry click</button></div>
+    <div class="actions"><button data-rt="pistol">Pistol</button><button data-rt="smg">SMG burst</button><button data-rt="step">Footsteps</button><button data-rt="reload">Reload clicks</button><button data-rt="barrel1">Shotgun</button><button data-rt="hurt">Getting hit</button></div>
     <div class="hint">Trigger tests (hold RT while you try them, 6 seconds each):</div>
-    <div class="actions"><button data-tt="first">1st barrel</button><button data-tt="second">2nd barrel</button><button data-tt="locked">Locked</button><button data-tt="kick">Buzz</button><button data-tt="off">Normal</button></div>
+    <div class="actions"><button data-tt="pistol">Pistol</button><button data-tt="smg">SMG</button><button data-tt="first">Shotgun 1st</button><button data-tt="second">Shotgun 2nd</button><button data-tt="locked">Locked</button><button data-tt="kick">Buzz</button><button data-tt="off">Normal</button></div>
   </details>
   <div class="note"><b>Every number here is our own guess.</b> Minigore's real values are not published, so none are copied from it. They get replaced by measured values once we have reference footage.</div>
   <h2>Feel presets (movement)</h2>
@@ -76,7 +77,7 @@ $('#app').innerHTML = `
   <h2>Diagnostics</h2><div class="diag" id="diag"></div>
 </aside>
 <button id="panelBtn">Tuning</button>
-<div id="hurtflash"></div><div id="pauseCard"><h1>PAUSED</h1></div><div id="over"><div><h1 id="overTitle">Game Over</h1><p id="overSub"></p><p id="overWave"></p><div class="big" id="overScore"></div><p id="overBest"></p><button id="bRetry" class="primary">Play again</button> <button id="bOverBack">Heroes</button></div></div><div id="focus"><div><h1>Blob Minigore</h1><p>Click to start · <b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button, pick a hero, <b>A</b> to play.</p></div></div>`;
+<div id="hurtflash"></div><div id="pauseCard"><h1>PAUSED</h1></div><div id="over"><div><h1 id="overTitle">Game Over</h1><p id="overSub"></p><p id="overWave"></p><div class="big" id="overScore"></div><p id="overBest"></p><button id="bRetry" class="primary">Play again</button> <button id="bOverBack">Heroes</button></div></div><div id="focus"><div><h1>Blob Minigore</h1><p>Click to start · <b>WASD</b> moves · hold <b>click</b> to fire (it aims itself)</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button, pick a hero, <b>A</b> to play. Left stick moves, <b>R2</b> fires.</p></div></div>`;
 
 const hud = createHud($('#app'));
 
@@ -87,6 +88,9 @@ const arena = createArena(stage);
 const rig = await loadRig();                                  // arms + shotgun authored in Blender
 const heroes = DESIGNS.map(d => new Hero(d, stage, fx, rig));
 let selected = 0, mode = 'compare';
+let runWeapon = 'pistol', appliedWeapon = null, bloom = 0;          // the weapon you carry in the run; the weapon last put in the hero's hands; how far the SMG's aim has opened up
+const RANGE_WEAPONS = ['pistol', 'smg', 'shotgun'];
+const weaponId = () => (mode === 'run' ? runWeapon : RANGE_WEAPONS[tuning.get('gun.weapon') | 0] || 'pistol');
 
 // compare stage: dark floor, three pedestals, a ring marking the current pick
 const showGroup = new THREE.Group(); showGroup.position.set(SHOW.x, 0, SHOW.z); stage.scene.add(showGroup);
@@ -134,12 +138,14 @@ const tracer = { set visible(v) { balls.visible = trails.visible = v; } };
 /* ------------------------------ player and gun (the simulation state) ------------------------------ */
 const player = { x: SPAWN.x, y: SPAWN.y, vx: 0, vy: 0, aimX: 0, aimY: -1, hasAim: false, speed: 0, impact: 0, skidT: 0, v: { x: 0, y: 0 }, kb: { x: 0, y: 0 }, assistTarget: null };   // kb: recoil shove, decays on its own so braking cannot cancel it instantly
 const P = {};
+let W = weaponParams('pistol');                                  // the numbers of the weapon in hand, with the player's tuning laid over them
 function readTuning() {
   P.maxSpeed = tuning.get('move.maxSpeed'); P.accel = tuning.get('move.accel'); P.brake = tuning.get('move.brake'); P.turnAccel = tuning.get('move.turnAccel');
   P.aimFollow = tuning.get('aim.follow'); P.legsFollow = tuning.get('legs.follow'); P.squash = tuning.get('anim.squash'); P.lean = tuning.get('anim.lean'); P.bob = tuning.get('anim.bob'); P.stepLen = tuning.get('anim.stepLen');
-  P.pellets = tuning.get('gun.pellets'); P.spread = tuning.get('gun.spread') * Math.PI / 180; P.bias = tuning.get('gun.bias'); P.damage = tuning.get('gun.damage'); P.range = tuning.get('gun.range');
-  P.falloffStart = tuning.get('gun.falloffStart'); P.minDamage = tuning.get('gun.minDamage'); P.pelletSpeed = tuning.get('gun.pelletSpeed'); P.interval = tuning.get('gun.interval'); P.reload = tuning.get('gun.reload');
-  P.capacity = tuning.get('gun.capacity'); P.recoil = tuning.get('gun.recoil'); P.assistMode = ['manual', 'assist', 'auto'][tuning.get('assist.mode')]; P.assistCone = tuning.get('assist.cone'); P.assistStrength = tuning.get('assist.strength');
+  W = weaponParams(weaponId(), k => tuning.get(k));
+  P.pellets = W.pellets; P.spread = W.spread * Math.PI / 180; P.bias = W.bias; P.damage = W.damage; P.range = W.range;
+  P.falloffStart = W.falloffStart; P.minDamage = W.minDamage; P.pelletSpeed = W.pelletSpeed; P.interval = W.interval; P.reload = W.reload;
+  P.capacity = W.capacity; P.recoil = W.recoil; P.assistMode = ['manual', 'assist', 'auto'][tuning.get('assist.mode')]; P.assistCone = tuning.get('assist.cone'); P.assistStrength = tuning.get('assist.strength');
   P.camKick = tuning.get('fx.camKick'); P.hitPause = tuning.get('fx.hitPause'); P.rumble = tuning.get('fx.rumble') > 0.5; P.numbers = tuning.get('fx.numbers') > 0.5;
 }
 readTuning();
@@ -166,7 +172,7 @@ const snap = input.snap;
 
 /* ------------------------------ controller feel: rumble patterns + PS5 adaptive triggers ------------------------------ */
 const dualsense = createDualSense({ onStatus: t => { const el = document.querySelector('#dsStatus'); if (el) el.textContent = t; } });
-const RUMBLE_KEY = { shot: 'fx.rumbleShot', reload: 'fx.rumbleReload', hurt: 'fx.rumbleHurt', kill: 'fx.rumbleKill', world: 'fx.rumbleWorld' };
+const RUMBLE_KEY = { shot: 'fx.rumbleShot', reload: 'fx.rumbleReload', hurt: 'fx.rumbleHurt', kill: 'fx.rumbleKill', world: 'fx.rumbleWorld', move: 'fx.rumbleMove' };
 const haptics = createHaptics({
   rumble: (strong, weak, ms) => { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(strong, weak, ms); },      // always the live pad; only for a controller player
   trigger: dualsense, triggersOn: () => tuning.get('fx.triggers') > 0.5, feel: () => feel,
@@ -179,26 +185,45 @@ dualsense.autoConnect();                                                        
 /* ------------------------------ shooting ------------------------------ */
 const _m = new THREE.Vector3();
 function muzzleReach() { return heroes[selected].muzzleReach; }
+/** put the right gun in the hero's hands whenever the weapon changes (a new run, the wave-2 SMG, the range's weapon setting) */
+function syncWeapon() {
+  const id = weaponId(); if (id === appliedWeapon) return; appliedWeapon = id; readTuning();
+  for (const hr of heroes) hr.setWeapon(id, W);
+  gun.setParams({ capacity: P.capacity, interval: P.interval, reload: P.reload }); gun.reset(); bloom = 0;
+}
+function unlockWeapon(id) {
+  if (runWeapon === id) return; runWeapon = id; syncWeapon();
+  hud.note(`NEW WEAPON  \u00b7  ${WEAPONS[id].name.toUpperCase()}`); audio.sfx.unlock?.(); haptics.reload('close');
+}
+// every footfall rumbles, harder the faster the hero runs (the walk cycle steps once per stride, so faster running steps more often too)
+for (const hr of heroes) hr.onStep = (side, speedF) => { if (hr === heroes[selected] && (mode === 'run' || mode === 'play') && !gamePaused) haptics.step(side, speedF); };
 
 function shoot(barrel, ammoLeft = 1) {
-  const h = heroes[selected], ax = player.aimX, ay = player.aimY;
+  const h = heroes[selected], ax = player.aimX, ay = player.aimY, sg = W.id === 'shotgun';
   // the visible gun takes the exact aim and position of this shot first, so the flash, the gun and the pellet origin are one and the same place
   h.snapAim(player.x, player.y, Math.atan2(ax, ay)); h.muzzleWorld(_m);
-  const side = barrel ? 0.078 : -0.078, px = -ay, py = ax;                              // barrels sit left/right of the centre line
+  const side = sg ? (barrel ? 0.078 : -0.078) : 0, px = -ay, py = ax;                    // the shotgun's barrels sit left/right of the centre line; a pistol or SMG has one muzzle
   const muzzle = { x: _m.x + px * side, y: _m.z + py * side };
   const id = ++shotId, spec = { range: P.range, damage: P.damage, falloffStart: P.falloffStart, minDamage: P.minDamage };
   const st = { id, fired: P.pellets, hits: 0, damage: 0, nearest: Infinity, kills: 0, t: performance.now() }; stats.recent.set(id, st); stats.last = st; stats.shots++; stats.pellets += P.pellets;
   if (stats.recent.size > 6) stats.recent.delete(stats.recent.keys().next().value);
+  // the SMG's aim opens up the longer you hold the trigger and settles when you let go
+  const spread = P.spread * (1 + bloom); bloom = Math.min(W.bloomMax, bloom + W.bloomPerShot);
   // anything between the player and the muzzle (a dummy against the gun, a wall) is resolved before the pellets start flying
   const liveTargets = mode === 'run' ? sess.crowd.list : targets;
-  launchBlast({ sim: pellets, from: player, muzzle, dir: { x: ax, y: ay }, angles: pelletPattern(P.pellets, P.spread, P.bias), spec, speed: () => P.pelletSpeed * R2(0.94, 1.06), world: arena.world, targets: liveTargets, shot: id, onHit });
+  launchBlast({ sim: pellets, from: player, muzzle, dir: { x: ax, y: ay }, angles: pelletPattern(P.pellets, spread, P.bias), spec, speed: () => P.pelletSpeed * R2(0.94, 1.06), world: arena.world, targets: liveTargets, shot: id, onHit });
   // recoil on the hero, kick on the gun and camera
   player.kb.x -= ax * P.recoil; player.kb.y -= ay * P.recoil; h.fire();
   const kbm = Math.hypot(player.kb.x, player.kb.y); if (kbm > 12) { player.kb.x *= 12 / kbm; player.kb.y *= 12 / kbm; }   // rapid fire can't stack a shove without limit
-  ck.vx += -ax * P.camKick * 14; ck.vz += -ay * P.camKick * 14;
+  ck.vx += -ax * P.camKick * W.camKick * 14; ck.vz += -ay * P.camKick * W.camKick * 14;
   // the muzzle flash is drawn where the pellets start
-  fx.wad(_m.x, 0.8, _m.z, ax, ay); fx.flash(_m.x, 0.8, _m.z, ax, ay); fx.smoke(_m.x, 0.8, _m.z, ax, ay); fx.sparks(_m.x, _m.z, ax, ay, '#ffd88a', 6);
-  audio.sfx.blast(barrel); haptics.shot(ammoLeft, P.capacity);                // first barrel thumps harder than the second; the trigger buzzes briefly
+  if (sg) { fx.wad(_m.x, 0.8, _m.z, ax, ay); fx.flash(_m.x, 0.8, _m.z, ax, ay); fx.smoke(_m.x, 0.8, _m.z, ax, ay); fx.sparks(_m.x, _m.z, ax, ay, '#ffd88a', 6); audio.sfx.blast(barrel); }
+  else {
+    fx.flash(_m.x, 0.8, _m.z, ax, ay); fx.sparks(_m.x, _m.z, ax, ay, '#ffd88a', W.id === 'smg' ? 2 : 3); if (W.id === 'pistol' || stats.shots % 3 === 0) fx.smoke(_m.x, 0.8, _m.z, ax, ay);
+    fx.casing(_m.x - ax * (h.muzzleReach - 0.55) + px * 0.2, 0.85, _m.z - ay * (h.muzzleReach - 0.55) + py * 0.2, px * R2(1.2, 2.4) - ax * R2(0, 0.6), R2(3, 4.5), py * R2(1.2, 2.4) - ay * R2(0, 0.6), true);   // a small brass casing flips out of the right side
+    audio.sfx[W.id]?.();
+  }
+  haptics.fire(W.id, ammoLeft, P.capacity);                  // the shotgun's first barrel thumps harder than the second; the pistol cracks; the SMG rattles
 }
 function onHit(h) {
   const st = stats.recent.get(h.shot);
@@ -252,20 +277,22 @@ function simStep(h) {
   if (impact > 2.5 && player.impact <= 0) { player.impact = 0.15; fx.dust(player.x, player.y, -v.x, -v.y, Math.min(1, impact / 7)); shake = Math.max(shake, Math.min(0.25, impact * 0.025)); }
   player.impact -= h; player.vx = v.x + player.kb.x; player.vy = v.y + player.kb.y; player.speed = Math.hypot(player.vx, player.vy);
 
-  // aim: in run mode R2 auto-targets the nearest enemy; right stick overrides when pushed
-  let explicit = { x: 0, y: 0 };
-  if (snap.mouseAim) { const a = mouseAim(player, input.mouse, { x: player.aimX, y: player.aimY }); explicit = { x: a.x, y: a.y }; }
-  else if (snap.aim.mag > 0.02) explicit = { x: snap.aim.x / snap.aim.mag, y: snap.aim.y / snap.aim.mag };
-  let helped;
+  // aim. In the run it is the left stick and R2 only: the right stick and the mouse are ignored. Holding R2 locks the nearest furry and the
+  // hero turns to it; the gun only fires once it points at it, so the first shot never goes the way you were walking.
+  let helped, fireOk = true;
   if (mode === 'run') {
-    const override = tuning.get('run.override') > 0.5 ? explicit : { x: 0, y: 0 };
     fireHold = snap.fire ? 0.35 : Math.max(0, fireHold - h);                 // keep facing the target briefly between trigger pulls
-    helped = runAim(player, override, snap.move, snap.fire || fireHold > 0, sess.crowd.list, arena.world, { range: tuning.get('run.range'), lead: tuning.get('run.lead'), pelletSpeed: P.pelletSpeed, lock, dt: h });
-    if (helped.aiming && helped.source !== 'explicit') {
+    const goal = runAim(player, { x: 0, y: 0 }, snap.move, snap.fire || fireHold > 0, sess.crowd.list, arena.world, { range: Math.min(tuning.get('run.range'), P.range - 0.5), lead: tuning.get('run.lead'), pelletSpeed: P.pelletSpeed, lock, dt: h });
+    helped = goal;
+    if (goal.aiming) {
       const from = player.hasAim ? { x: player.aimX, y: player.aimY } : (player.speed > 0.5 ? { x: player.vx / player.speed, y: player.vy / player.speed } : { x: player.aimX, y: player.aimY });
-      const r = turnToward(from, helped, 30, h); helped = { ...helped, x: r.x, y: r.y };
+      const r = turnToward(from, goal, 30, h); helped = { ...goal, x: r.x, y: r.y };
+      fireOk = aimError(helped, goal) < 0.12;
     }
   } else {
+    let explicit = { x: 0, y: 0 };
+    if (snap.mouseAim) { const a = mouseAim(player, input.mouse, { x: player.aimX, y: player.aimY }); explicit = { x: a.x, y: a.y }; }
+    else if (snap.aim.mag > 0.02) explicit = { x: snap.aim.x / snap.aim.mag, y: snap.aim.y / snap.aim.mag };
     helped = chooseAim(player, explicit, snap.move, snap.fire, targets, arena.world, { mode: snap.mouseAim ? 'manual' : P.assistMode, coneDeg: P.assistCone, strength: P.assistStrength, range: P.range + 3 });
   }
   if (helped.aiming) { player.aimX = helped.x; player.aimY = helped.y; player.hasAim = true; } else player.hasAim = snap.fire;
@@ -276,7 +303,8 @@ function simStep(h) {
   if (snap.fire && !prevFire && (gun.reloading || gun.state.ammo <= 0)) haptics.dry();       // pulling a trigger that cannot fire: a small dry tick
   prevFire = snap.fire;
   const reloadKey = input.keys.has('KeyR') || !!snap.buttons[2]?.pressed;
-  for (const e of gun.update(h, { fire: snap.fire, reload: reloadKey })) {
+  bloom = Math.max(0, bloom - W.bloomDecay * h);
+  for (const e of gun.update(h, { fire: snap.fire && fireOk, reload: reloadKey })) {
     if (e.type === 'shot') shoot(e.barrel, e.ammoLeft);
     else if (e.type === 'reloadStart') audio.sfx.open();
     else if (e.type === 'reloadDone') haptics.reload('grab');                     // a tiny tick: the gun is ready
@@ -287,8 +315,8 @@ function simStep(h) {
   if (mode === 'run') {
     const events = sess.step(h, { x: player.x, y: player.y, vx: player.v.x, vy: player.v.y, r: heroes[selected].radius });
     for (const ev of events) {
-      if (ev.type === 'countdown') { hud.countdown(ev.n, ev.wave); audio.sfx.tick?.(ev.n); }
-      else if (ev.type === 'wave') { hud.wave(ev.wave); audio.sfx.wave?.(); haptics.swarm?.(); }
+      if (ev.type === 'countdown') { hud.countdown(ev.n, ev.wave); audio.sfx.tick?.(ev.n); if (ev.n === 3) unlockWeapon(weaponForWave(ev.wave)); }   // the SMG arrives with the breather after wave 1
+      else if (ev.type === 'wave') { hud.wave(ev.wave); audio.sfx.wave?.(); haptics.swarm?.(); unlockWeapon(weaponForWave(ev.wave)); }
       else if (ev.type === 'telegraph') { furries.warn(ev.x, ev.y, ev.delay, tierOf(ev.kind, ev.tier).h); }
       else if (ev.type === 'spawn') { audio.sfx.spawn?.(); }
       else if (ev.type === 'swarm') { audio.sfx.swarm?.(); haptics.swarm?.(); }
@@ -311,7 +339,7 @@ function simStep(h) {
 }
 // the hero reports each beat of the reload animation; sounds only play for the hero you are actually controlling
 for (const h of heroes) h.onReloadStage = (stage, who) => {
-  if (mode !== 'play' || who !== heroes[selected]) return;
+  if ((mode !== 'play' && mode !== 'run') || who !== heroes[selected]) return;
   if (stage === 'eject') audio.sfx.eject(); else if (stage === 'grab') audio.sfx.grab(); else if (stage === 'insert') audio.sfx.insert(); else if (stage === 'close') audio.sfx.close();
   haptics.reload(stage);                                                       // each beat of the reload has its own click, building toward the close
 };
@@ -349,6 +377,7 @@ function setMode(m) {
   if (inArena) { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
   if (m === 'run') startRun();
   else { furries.setVisible(false); furries.clear(); sess.crowd.clear(); lock.target = null; for (const hr of heroes) hr.setDamage(0); }
+  syncWeapon();
   heroes.forEach((h, k) => { if (m === 'compare') h.root.position.set(SHOW.x + (k - 1) * 4.6, 0, SHOW.z); });
   $('#panel').classList.toggle('collapsed', m === 'compare' || innerWidth < 900);
   $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = inArena ? 'flex' : 'none';
@@ -358,7 +387,7 @@ function setMode(m) {
 }
 /** a fresh survival run: full hearts, empty arena, hero back on the spawn */
 function startRun() {
-  sess.reset(tuning.get('run.hearts') | 0 || 3); lock.target = null; fireHold = 0; gamePaused = false;
+  sess.reset(tuning.get('run.hearts') | 0 || 3); lock.target = null; fireHold = 0; gamePaused = false; runWeapon = 'pistol'; syncWeapon();
   furries.clear(); furries.setVisible(true); gun.reset(); pellets.clear();
   player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; player.hasAim = false;
   $('#over').classList.remove('on'); document.body.classList.remove('paused', 'low-hp');
@@ -373,7 +402,7 @@ function updateHint() {
   $('#hint').innerHTML = mode === 'compare'
     ? '<b>1</b><b>2</b><b>3</b> choose · <b>Enter</b> or Play button to run. <b>Training</b> for the range.<br>Controller: <b>D-pad</b>/<b>LB</b><b>RB</b> choose · <b>A</b> play · <b>Y</b> training range.'
     : mode === 'run'
-    ? '<b>WASD</b> move · <b>R2 / click</b> fires (auto-aims) · survive as long as you can · <b>Start / Esc</b> pause<br>Controller: left stick moves · <b>R2</b> fires · auto-aims nearest enemy.'
+    ? '<b>WASD</b> move · hold <b>click</b> to fire (it aims itself) · <b>Esc</b> pause<br>Controller: left stick moves · <b>R2</b> fires at the nearest furry · <b>Start</b> pause.'
     : '<b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads · <b>C</b> back to hero select<br>Controller: sticks move and aim · <b>RT</b> fires · <b>B</b> back.';
 }
 $('#bMode').onclick = () => setMode(mode === 'compare' ? 'run' : 'compare');
@@ -435,16 +464,17 @@ addControls($('#sliders'), DEFS.filter(d => d.page === 'hero' && !FEEL_GROUPS.in
 addControls($('#feelSliders'), [...DEFS.filter(d => FEEL_GROUPS.includes(d.group)), { ...DEFS.find(d => d.key === 'trigger.press'), group: 'Adaptive triggers', label: 'Click point (fires here)' }]);
 addControls($('#inputSliders'), DEFS.filter(d => d.page === undefined && d.group !== 'Feel pad'));
 let previewT = 0;
-const RUMBLE_PREVIEW = { 'fx.rumbleShot': 'barrel1', 'fx.rumbleReload': 'close', 'fx.rumbleHurt': 'hurt', 'fx.rumbleKill': 'kill', 'fx.rumbleWorld': 'swarm' };
+const RUMBLE_PREVIEW = { 'fx.rumbleShot': 'pistol', 'fx.rumbleReload': 'close', 'fx.rumbleHurt': 'hurt', 'fx.rumbleKill': 'kill', 'fx.rumbleWorld': 'swarm' };
 /** in the pause menu, moving a vibration or trigger setting plays that feel right away, so you tune it by feeling it */
 function previewFeel(k) {
   if (!k || !gamePaused) return; clearTimeout(previewT);
   previewT = setTimeout(() => {
     if (k.startsWith('trig.') || k === 'trigger.press') {
       if (!dualsense.connected) return;
-      const which = k === 'trig.strength2' ? 'second' : k === 'trig.lock' ? 'locked' : k === 'trig.buzz' ? 'kick' : 'first';
+      const which = k === 'trig.strength2' ? 'second' : k === 'trig.lock' ? 'locked' : k === 'trig.buzz' ? 'kick' : k === 'trig.pistol' ? 'pistol' : k.startsWith('trig.smg') ? 'smg' : 'first';
       haptics.hold(4000); dualsense.retry(); dualsense.set({ right: feel[which], left: { effect: 'off' } });
-    } else if (k.startsWith('fx.rumble')) haptics.play(RUMBLE_PREVIEW[k] || 'barrel1');
+    } else if (k === 'fx.rumbleMove') { haptics.step(0, 1); setTimeout(() => haptics.step(1, 1), 180); }
+    else if (k.startsWith('fx.rumble')) haptics.play(RUMBLE_PREVIEW[k] || 'pistol');
   }, 160);
 }
 tuning.onChange(k => { sync.forEach(f => f()); readTuning(); refreshFeel(); updateStats(); audio.setVolume(tuning.get('fx.volume')); previewFeel(k); });
@@ -478,7 +508,10 @@ $('#bRange').onclick = () => setMode('play');
   $('#dsLayout').onchange = e => dualsense.setTransport(e.target.value);
   $('#feel').addEventListener('toggle', () => { $('#dsRumble').textContent = snap.pad.connected ? (snap.pad.rumble ? 'Browser rumble: available for this controller.' : 'Browser rumble: not available.') : 'Press a button on the controller so the browser can see it.'; });
   for (const b of document.querySelectorAll('[data-rt]')) b.onclick = () => {
-    const k = b.dataset.rt; if (k === 'reload') { [['eject', 0], ['grab', 220], ['insert', 520], ['close', 820]].forEach(([n, t]) => setTimeout(() => haptics.reload(n), t)); } else if (k === 'dry') haptics.play('dry'); else haptics.play(k);
+    audio.unlock(); const k = b.dataset.rt; if (k === 'reload') { [['eject', 0], ['grab', 220], ['insert', 520], ['close', 820]].forEach(([n, t]) => setTimeout(() => haptics.reload(n), t)); } else if (k === 'dry') haptics.play('dry');
+    else if (k === 'smg') { for (let i = 0; i < 14; i++) setTimeout(() => haptics.fire('smg', 30, 30), i * 75); }                                 // a burst at the real rate
+    else if (k === 'step') { for (let i = 0; i < 8; i++) setTimeout(() => haptics.step(i & 1, i < 4 ? 0.35 : 1), 40 + i * (i < 4 ? 320 : 190)); }   // walking, then running
+    else haptics.play(k);
     $('#dsRumble').textContent = snap.pad.connected && snap.pad.rumble ? 'Sent to the controller.' : 'No controller rumble available: press a button on the controller first.';
   };
   for (const b of document.querySelectorAll('[data-tt]')) b.onclick = () => {
@@ -499,8 +532,11 @@ buildCards(); choose(0); setMode('compare');
 let shellCount = 0;
 function updateAmmoHud() {
   const cap = P.capacity, host = $('#shells');
-  if (shellCount !== cap) { shellCount = cap; host.innerHTML = '<i></i>'.repeat(cap); }
-  [...host.children].forEach((el, i) => el.classList.toggle('on', i < gun.state.ammo));
+  if (cap > 6) { host.textContent = `${gun.state.ammo} / ${cap}`; shellCount = -1; }                          // a magazine is a number, not a row of shells
+  else {
+    if (shellCount !== cap) { shellCount = cap; host.innerHTML = '<i></i>'.repeat(cap); }
+    [...host.children].forEach((el, i) => el.classList.toggle('on', i < gun.state.ammo));
+  }
   $('#reloadBar i').style.width = gun.reloading ? gun.progress * 100 + '%' : '0%';
   $('#ammo').classList.toggle('reloading', gun.reloading);
 }
@@ -528,7 +564,7 @@ function updateCamera(dt) {
     const dist = narrow ? clamp(11 / asp * 0.62, 11, 24) : 15.5 * back;
     cam.position.set(focus.x, 4.4 + (dist - 15.5) * 0.15, focus.z + dist); cam.lookAt(focus.x, 1.15, focus.z); stage.lightFollow(SHOW.x, SHOW.z); return;
   }
-  const reach = player.hasAim ? (snap.mouseAim ? clamp(Math.hypot(input.mouse.x - player.x, input.mouse.y - player.y) / 9, 0, 1) : snap.aim.mag || (player.assistTarget ? 0.6 : 0)) : 0;
+  const reach = mode === 'run' ? (player.hasAim && player.assistTarget ? 0.6 : 0) : player.hasAim ? (snap.mouseAim ? clamp(Math.hypot(input.mouse.x - player.x, input.mouse.y - player.y) / 9, 0, 1) : snap.aim.mag || (player.assistTarget ? 0.6 : 0)) : 0;
   const tx = player.x + player.vx * tuning.get('cam.velLead') + player.aimX * tuning.get('cam.aimLead') * reach;
   const tz = player.y + player.vy * tuning.get('cam.velLead') + player.aimY * tuning.get('cam.aimLead') * reach;
   focus.lerp(_t.set(tx, 0, tz), 1 - Math.exp(-tuning.get('cam.follow') * dt));
@@ -551,7 +587,7 @@ function frame(now) {
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
   input.sample(now); menuStep(); readTuning();
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
-  haptics.update({ mode: mode === 'run' && (gamePaused || sess.run.over) ? 'menu' : mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
+  haptics.update({ weapon: weaponId(), mode: mode === 'run' && (gamePaused || sess.run.over) ? 'menu' : mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
   shake = Math.max(0, shake - realDt * 3);
   const dtv = Math.max(dt, 1e-4);
 
@@ -601,4 +637,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps, sess, furries, lock, startRun, bestScore: () => bestScore };
+window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps, sess, furries, lock, startRun, syncWeapon, unlockWeapon, weapon: () => weaponId(), W: () => W, bloom: () => bloom, bestScore: () => bestScore };

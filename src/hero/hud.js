@@ -16,12 +16,13 @@ export function createHud(host) {
         <div class="hp-flash"></div>
       </div>
     </div>
-    <div id="banner"><div class="b-small"></div><div class="b-big"></div></div>`;
+    <div id="banner"><div class="b-small"></div><div class="b-big"></div></div>
+    <div id="note"></div>`;
   host.appendChild(root);
   const q = s => root.querySelector(s), hp = q('#hp'), fill = q('.hp-fill'), ghost = q('.hp-ghost'), flash = q('.hp-flash'), ticks = q('.hp-ticks'), badge = q('.hp-badge');
-  const banner = q('#banner'), small = q('.b-small'), big = q('.b-big');
+  const banner = q('#banner'), small = q('.b-small'), big = q('.b-big'), note = q('#note');
   badge.addEventListener('animationend', e => { if (e.animationName === 'hppop') badge.classList.remove('pop'); });
-  const bar = createHealthBar(); let drawnMax = 0, hideIn = 0, t = 0, lastCrit = null;
+  const bar = createHealthBar(); let drawnMax = 0, hideIn = 0, noteIn = 0, t = 0, lastCrit = null;
 
   function buildTicks(max) {
     if (max === drawnMax) return; drawnMax = max; ticks.innerHTML = '';
@@ -32,13 +33,15 @@ export function createHud(host) {
   return {
     bar,
     /** a fresh run: full bar, nothing animating */
-    reset(hp, max) { bar.reset(hp, max); buildTicks(max); banner.classList.remove('show'); hideIn = 0; draw(); },
+    reset(hp, max) { bar.reset(hp, max); buildTicks(max); banner.classList.remove('show'); note.classList.remove('show'); hideIn = noteIn = 0; draw(); },
     /** health changed (a hit) */
     setHealth(hp, max) { buildTicks(max); bar.set(hp, max); if (bar.state.flash === 1) restart(badge, 'pop'); },
     countdown(n, wave) { small.textContent = `WAVE ${wave} STARTING IN`; big.textContent = n; big.className = 'b-big count'; restart(big, 'tick'); banner.classList.add('show'); hideIn = 0; },
     wave(n) { small.textContent = 'SURVIVE'; big.textContent = `WAVE ${n}`; big.className = 'b-big title'; restart(big, 'slam'); banner.classList.add('show'); hideIn = 2.4; },
     hideBanner() { banner.classList.remove('show'); hideIn = 0; },
-    update(dt) { t += dt; const s = bar.update(dt); if (hideIn > 0 && (hideIn -= dt) <= 0) banner.classList.remove('show'); draw(s); },
+    /** a short line near the bottom of the screen (a new weapon) */
+    note(text, secs = 3.6) { note.textContent = text; restart(note, 'in'); note.classList.add('show'); noteIn = secs; },
+    update(dt) { t += dt; const s = bar.update(dt); if (hideIn > 0 && (hideIn -= dt) <= 0) banner.classList.remove('show'); if (noteIn > 0 && (noteIn -= dt) <= 0) note.classList.remove('show'); draw(s); },
     get critical() { return bar.state.critical; },
   };
 

@@ -44,11 +44,12 @@ export function createFx(scene) {
   function sparks(x, z, nx, nz, color = '#ffe08a', n = 5) { for (let i = 0; i < n; i++) emit(x, 0.7, z, nx * R2(1, 4) + R2(-2, 2), R2(0.5, 2.5), nz * R2(1, 4) + R2(-2, 2), R2(0.15, 0.3), R2(0.03, 0.06), color, { g: 12, op: 1 }); }
 
   /* ---- ejected shell casings: tumble, bounce, settle, fade ---- */
-  const casingGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.2, 8), casings = Array.from({ length: 16 }, () => {
+  const casingGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.2, 8), casings = Array.from({ length: 28 }, () => {
     const g = new THREE.Group(), body = new THREE.Mesh(casingGeo, new THREE.MeshBasicMaterial({ color: '#d9463e' })), base = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 8), new THREE.MeshBasicMaterial({ color: '#d9a441' })); base.position.y = -0.1; g.add(body, base); g.visible = false; scene.add(g);
-    return { g, life: 0, v: new THREE.Vector3(), spin: new THREE.Vector3() };
+    return { g, body, base, size: 1, life: 0, v: new THREE.Vector3(), spin: new THREE.Vector3() };
   });
-  function casing(x, y, z, vx, vy, vz) { const c = casings.find(q => q.life <= 0) || casings[0]; c.g.position.set(x, y, z); c.v.set(vx, vy, vz); c.spin.set(R2(-12, 12), R2(-12, 12), R2(-12, 12)); c.life = 5; c.g.visible = true; c.g.scale.setScalar(1); }
+  /** brass = a small brass casing (pistol, SMG) instead of a red shotgun shell */
+  function casing(x, y, z, vx, vy, vz, brass = false) { const c = casings.find(q => q.life <= 0) || casings[0]; c.size = brass ? 0.38 : 1; c.body.material.color.set(brass ? '#e3b441' : '#d9463e'); c.base.material.color.set(brass ? '#c9952a' : '#d9a441'); c.g.position.set(x, y, z); c.v.set(vx, vy, vz); c.spin.set(R2(-12, 12), R2(-12, 12), R2(-12, 12)); c.life = brass ? 3 : 5; c.g.visible = true; c.g.scale.setScalar(c.size); }
 
   /* ---- floating damage numbers ---- */
   const numbers = Array.from({ length: 24 }, () => {
@@ -79,7 +80,7 @@ export function createFx(scene) {
     for (const c of casings) { if (c.life <= 0) continue; c.life -= dt; if (c.life <= 0) { c.g.visible = false; continue; }
       c.v.y -= 22 * dt; c.g.position.addScaledVector(c.v, dt); c.g.rotation.x += c.spin.x * dt; c.g.rotation.z += c.spin.z * dt;
       if (c.g.position.y < 0.06) { c.g.position.y = 0.06; if (Math.abs(c.v.y) > 1) { c.v.y *= -0.4; c.v.x *= 0.6; c.v.z *= 0.6; c.spin.multiplyScalar(0.5); } else { c.v.set(0, 0, 0); c.spin.set(0, 0, 0); } }
-      if (c.life < 0.6) c.g.scale.setScalar(c.life / 0.6); }
+      if (c.life < 0.6) c.g.scale.setScalar(c.size * c.life / 0.6); }
     for (const n of numbers) { if (n.life <= 0) continue; n.life -= dt; if (n.life <= 0) { n.sp.visible = false; continue; } const t = 1 - n.life / n.max; n.sp.position.y += dt * (2.4 - t * 1.6); n.sp.material.opacity = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3; const sc = t < 0.15 ? 0.6 + t / 0.15 * 0.5 : 1.1; n.sp.scale.set(1.6 * sc, 0.8 * sc, 1); }
     for (const r of rings) {
       if (r.life <= 0) continue; r.life -= dt; if (r.life <= 0) { r.m.visible = false; continue; }

@@ -43,7 +43,7 @@ await tap('Start');
 const vis = () => get(() => ['panel', 'pauseCard', 'pauseHead', 'feel'].filter(id => document.getElementById(id).checkVisibility()));
 assert.deepEqual(await vis(), ['panel', 'pauseCard', 'pauseHead', 'feel'], 'pausing shows the settings with the controller section open');
 const text = await get(() => document.querySelector('#feelSliders').innerText);
-for (const t of ['Controller vibration', 'Gun shots', 'Getting hit', 'Reload clicks', '1st barrel resistance', '2nd barrel resistance', 'Wall starts at', 'Click point', 'Fire buzz']) assert.ok(text.includes(t), `the pause menu has "${t}"`);
+for (const t of ['Controller vibration', 'Gun shots', 'Getting hit', 'Reload clicks', 'Shotgun 1st barrel', 'Shotgun 2nd barrel', 'Footsteps', 'Pistol resistance', 'SMG trigger buzz', 'Wall starts at', 'Click point', 'Fire buzz']) assert.ok(text.includes(t), `the pause menu has "${t}"`);
 const sel = () => get(() => document.querySelector('.nav-sel')?.innerText.trim().split('\n')[0] ?? null);
 assert.match(await sel(), /Resume/);
 for (let i = 0; i < 8; i++) { if ((await sel() || '').includes('Overall strength')) break; await tap('Down'); }
@@ -54,7 +54,7 @@ assert.ok(after < before, `D-pad left lowers the strength (${before} -> ${after}
 await tap('Right'); await tap('Right'); assert.ok(await get(() => window.__hero.tuning.get('fx.rumbleScale')) > after, 'D-pad right raises it');
 await get(() => window.__hero.tuning.set('fx.rumbleScale', 1));
 // a toggle flips with A; a trigger setting reaches the effect
-for (let i = 0; i < 20; i++) { if ((await sel() || '').includes('1st barrel resistance')) break; await tap('Down'); }
+for (let i = 0; i < 20; i++) { if ((await sel() || '').includes('Shotgun 1st barrel')) break; await tap('Down'); }
 const s0 = await get(() => window.__hero.tuning.get('trig.strength')); await tap('Right');
 assert.equal(await get(() => window.__hero.tuning.get('trig.strength')), s0 + 1);
 // the paused game does not move

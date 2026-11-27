@@ -2,6 +2,7 @@
 // copy the numbers, and we lock them into the game when you're happy.
 
 import { effectiveTrigger } from './input/process.js';
+import { WEAPONS } from './game/weapons.js';
 
 export const DEFS = [
   { key: 'left.inner',  group: 'Left stick (move)', label: 'Inner deadzone', min: 0,   max: 0.4, step: 0.005, def: 0.12 },
@@ -14,9 +15,9 @@ export const DEFS = [
   { key: 'trigger.release', group: 'Fire trigger', label: 'Release at',  min: 0.02, max: 0.9,  step: 0.01, def: 0.35 },
   // ---- hero scene (Iteration 1) ----
   { key: 'move.maxSpeed', page: 'hero', group: 'Movement', label: 'Top speed (u/s)',   min: 3,   max: 14,  step: 0.1,  def: 7.5 },
-  { key: 'move.accel',    page: 'hero', group: 'Movement', label: 'Acceleration',      min: 10,  max: 220, step: 1,    def: 70 },
-  { key: 'move.brake',    page: 'hero', group: 'Movement', label: 'Braking',           min: 10,  max: 220, step: 1,    def: 60 },
-  { key: 'move.turnAccel',page: 'hero', group: 'Movement', label: 'Turn / reverse',    min: 10,  max: 260, step: 1,    def: 110 },
+  { key: 'move.accel',    page: 'hero', group: 'Movement', label: 'Acceleration',      min: 10,  max: 220, step: 1,    def: 110 },
+  { key: 'move.brake',    page: 'hero', group: 'Movement', label: 'Braking',           min: 10,  max: 220, step: 1,    def: 100 },
+  { key: 'move.turnAccel',page: 'hero', group: 'Movement', label: 'Turn / reverse',    min: 10,  max: 260, step: 1,    def: 160 },
   { key: 'aim.follow',    page: 'hero', group: 'Body', label: 'Upper body turn speed', min: 6,   max: 60,  step: 1,    def: 26 },
   { key: 'legs.follow',   page: 'hero', group: 'Body', label: 'Leg turn speed',        min: 4,   max: 40,  step: 1,    def: 16 },
   { key: 'anim.squash',   page: 'hero', group: 'Body', label: 'Squash and stretch',    min: 0,   max: 2,   step: 0.05, def: 1 },
@@ -41,6 +42,19 @@ export const DEFS = [
   { key: 'gun.reload',     page: 'hero', group: 'Shotgun', label: 'Reload time (s)',      min: 0.3, max: 2.5, step: 0.05, def: 0.95 },
   { key: 'gun.capacity',   page: 'hero', group: 'Shotgun', label: 'Shells (double barrel = 2)', min: 1, max: 2, step: 1, def: 2 },
   { key: 'gun.recoil',     page: 'hero', group: 'Shotgun', label: 'Recoil shove (u/s)',   min: 0,   max: 9,   step: 0.1,  def: 4 },
+  { key: 'gun.weapon',     page: 'hero', group: 'Training range', label: 'Weapon on the range', kind: 'select', options: ['Pistol', 'SMG', 'Shotgun'], min: 0, max: 2, step: 1, def: 0 },
+  { key: 'pistol.damage',  page: 'hero', group: 'Pistol', label: 'Damage per bullet',   min: 4,   max: 80,  step: 1,    def: WEAPONS.pistol.damage },
+  { key: 'pistol.interval',page: 'hero', group: 'Pistol', label: 'Time between shots (s)', min: 0.06, max: 0.6, step: 0.01, def: WEAPONS.pistol.interval },
+  { key: 'pistol.reload',  page: 'hero', group: 'Pistol', label: 'Reload time (s)',     min: 0.3, max: 2.5, step: 0.05, def: WEAPONS.pistol.reload },
+  { key: 'pistol.capacity',page: 'hero', group: 'Pistol', label: 'Magazine',            min: 4,   max: 30,  step: 1,    def: WEAPONS.pistol.capacity },
+  { key: 'pistol.spread',  page: 'hero', group: 'Pistol', label: 'Spread (degrees)',    min: 0,   max: 8,   step: 0.1,  def: WEAPONS.pistol.spread },
+  { key: 'pistol.range',   page: 'hero', group: 'Pistol', label: 'Range (units)',       min: 8,   max: 30,  step: 0.5,  def: WEAPONS.pistol.range },
+  { key: 'smg.damage',     page: 'hero', group: 'SMG', label: 'Damage per bullet',      min: 3,   max: 40,  step: 1,    def: WEAPONS.smg.damage },
+  { key: 'smg.interval',   page: 'hero', group: 'SMG', label: 'Time between shots (s)', min: 0.04, max: 0.3, step: 0.005, def: WEAPONS.smg.interval },
+  { key: 'smg.reload',     page: 'hero', group: 'SMG', label: 'Reload time (s)',        min: 0.3, max: 2.5, step: 0.05, def: WEAPONS.smg.reload },
+  { key: 'smg.capacity',   page: 'hero', group: 'SMG', label: 'Magazine',               min: 10,  max: 60,  step: 1,    def: WEAPONS.smg.capacity },
+  { key: 'smg.spread',     page: 'hero', group: 'SMG', label: 'Spread (degrees)',       min: 0,   max: 10,  step: 0.1,  def: WEAPONS.smg.spread },
+  { key: 'smg.range',      page: 'hero', group: 'SMG', label: 'Range (units)',          min: 8,   max: 30,  step: 0.5,  def: WEAPONS.smg.range },
   { key: 'assist.mode',    page: 'hero', group: 'Aim', label: 'Aim help (stick / arrows)', kind: 'select', options: ['Manual', 'Assist', 'Auto-aim'], min: 0, max: 2, step: 1, def: 1 },
   { key: 'assist.cone',    page: 'hero', group: 'Aim', label: 'Assist cone (degrees)',    min: 0,   max: 20,  step: 0.5,  def: 8 },
   { key: 'assist.strength',page: 'hero', group: 'Aim', label: 'Assist strength',          min: 0,   max: 1,   step: 0.05, def: 0.5 },
@@ -49,7 +63,6 @@ export const DEFS = [
   { key: 'run.pressure',   page: 'hero', group: 'Survival run', label: 'Enemy numbers (x)',     min: 0.5, max: 2.5, step: 0.05, def: 1 },
   { key: 'run.range',      page: 'hero', group: 'Survival run', label: 'Auto-aim range (units)', min: 6,  max: 24,  step: 0.5,  def: 16 },
   { key: 'run.lead',       page: 'hero', group: 'Survival run', label: 'Lead moving targets',   kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
-  { key: 'run.override',   page: 'hero', group: 'Survival run', label: 'Right stick overrides auto-aim', kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
   { key: 'fx.camKick',     page: 'hero', group: 'Feedback', label: 'Camera kick',         min: 0,   max: 1.5, step: 0.05, def: 0.35 },
   { key: 'fx.hitPause',    page: 'hero', group: 'Feedback', label: 'Hit pause on kills (s)', min: 0, max: 0.12, step: 0.005, def: 0.03 },
   { key: 'fx.volume',      page: 'hero', group: 'Feedback', label: 'Volume',              min: 0,   max: 1,   step: 0.05, def: 0.6 },
@@ -60,10 +73,14 @@ export const DEFS = [
   { key: 'fx.rumbleHurt',  page: 'hero', group: 'Vibration', label: 'Getting hit',         min: 0,   max: 1,   step: 0.05, def: 1 },
   { key: 'fx.rumbleKill',  page: 'hero', group: 'Vibration', label: 'Kill taps',           min: 0,   max: 1,   step: 0.05, def: 1 },
   { key: 'fx.rumbleWorld', page: 'hero', group: 'Vibration', label: 'Swarm thumps',        min: 0,   max: 1,   step: 0.05, def: 1 },
+  { key: 'fx.rumbleMove',  page: 'hero', group: 'Vibration', label: 'Footsteps',           min: 0,   max: 1,   step: 0.05, def: 0.7 },
   { key: 'fx.triggers',    page: 'hero', group: 'Adaptive triggers', label: 'PS5 adaptive triggers', kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
-  { key: 'trig.strength',  page: 'hero', group: 'Adaptive triggers', label: '1st barrel resistance', min: 1, max: 8, step: 1, def: 5 },
-  { key: 'trig.strength2', page: 'hero', group: 'Adaptive triggers', label: '2nd barrel resistance', min: 1, max: 8, step: 1, def: 8 },
+  { key: 'trig.strength',  page: 'hero', group: 'Adaptive triggers', label: 'Shotgun 1st barrel', min: 1, max: 8, step: 1, def: 5 },
+  { key: 'trig.strength2', page: 'hero', group: 'Adaptive triggers', label: 'Shotgun 2nd barrel', min: 1, max: 8, step: 1, def: 8 },
   { key: 'trig.start',     page: 'hero', group: 'Adaptive triggers', label: 'Wall starts at (2-7)',   min: 2, max: 7, step: 1, def: 3 },
+  { key: 'trig.pistol',    page: 'hero', group: 'Adaptive triggers', label: 'Pistol resistance',   min: 1, max: 8, step: 1, def: 4 },
+  { key: 'trig.smgBuzz',   page: 'hero', group: 'Adaptive triggers', label: 'SMG trigger buzz (0 = off)', min: 0, max: 8, step: 1, def: 5 },
+  { key: 'trig.smgFreq',   page: 'hero', group: 'Adaptive triggers', label: 'SMG buzz speed (Hz)', min: 4, max: 80, step: 1, def: 26 },
   { key: 'trig.lock',      page: 'hero', group: 'Adaptive triggers', label: 'Locked in reload (0 = free)', min: 0, max: 8, step: 1, def: 8 },
   { key: 'trig.buzz',      page: 'hero', group: 'Adaptive triggers', label: 'Fire buzz (0 = off)', min: 0, max: 8, step: 1, def: 8 },
   { key: 'fx.numbers',     page: 'hero', group: 'Feedback', label: 'Damage numbers',      kind: 'toggle', min: 0, max: 1, step: 1, def: 1 },
@@ -94,7 +111,7 @@ function persist(keys = [], drop = []) {
 /** Feel presets for the movement trio, so you can compare in one click. */
 export const PRESETS = {
   Snappy:   { 'move.maxSpeed': 8.5, 'move.accel': 130, 'move.brake': 120, 'move.turnAccel': 190 },
-  Balanced: { 'move.maxSpeed': 7.5, 'move.accel': 70,  'move.brake': 60,  'move.turnAccel': 110 },
+  Balanced: { 'move.maxSpeed': 7.5, 'move.accel': 110, 'move.brake': 100, 'move.turnAccel': 160 },
   Floaty:   { 'move.maxSpeed': 7,   'move.accel': 38,  'move.brake': 22,  'move.turnAccel': 55 },
 };
 
