@@ -16,7 +16,7 @@ import { Target } from '../game/targets.js';
 import { mouseAim } from '../input/process.js';
 import { createInput } from '../input/source.js';
 import { createMenuNav, menuCommands } from '../input/menu.js';
-import { createHaptics, TRIGGER_FEEL } from '../input/haptics.js';
+import { createHaptics, buildFeel, rumbleCategory } from '../input/haptics.js';
 import { createDualSense } from '../input/dualsense.js';
 import { DEFS, PRESETS, tuning } from '../tuning.js';
 import { DESIGNS } from './designs.js';
@@ -26,6 +26,8 @@ import { DummyView } from './dummy.js';
 import { createSession } from '../game/run.js';
 import { runAim, createLock, turnToward } from '../game/autoaim.js';
 import { createFurries } from './furries.js';
+import { createHud } from './hud.js';
+import { createPanelNav } from './panelNav.js';
 import { tierOf } from '../game/crowd.js';
 
 const STEP = 1 / 120;
@@ -46,13 +48,11 @@ $('#app').innerHTML = `
 <div id="hint"></div>
 <div id="ammo"><div id="shells"></div><div id="reloadBar"><i></i></div></div>
 <aside id="panel">
-  <div class="note"><b>Every number here is our own guess.</b> Minigore's real values are not published, so none are copied from it. They get replaced by measured values once we have reference footage.</div>
-  <h2>Feel presets (movement)</h2>
-  <div class="actions" id="presets"></div>
-  <div class="stat" id="stats"></div>
-  <div id="sliders"></div>
-  <details><summary>Controller deadzones</summary><div id="inputSliders"></div></details>
-  <details id="feel"><summary>Controller feel (PS5)</summary>
+  <div id="pauseHead"><h2>Paused</h2>
+    <div class="actions"><button id="bResume" class="primary">Resume</button><button id="bQuit">Quit to heroes</button></div>
+    <div class="hint pad-hint"><b>D-pad</b> or left stick: move · <b>◀ ▶</b> change · <b>A</b> press · <b>Start</b> or <b>B</b> resume</div></div>
+    <details id="feel" open><summary>Controller: vibration and triggers</summary>
+    <div id="feelSliders"></div>
     <div class="hint" id="dsStatus"></div>
     <div class="hint" id="dsRumble"></div>
     <div class="actions"><button id="bDs">Connect adaptive triggers</button>
@@ -62,6 +62,12 @@ $('#app').innerHTML = `
     <div class="hint">Trigger tests (hold RT while you try them, 6 seconds each):</div>
     <div class="actions"><button data-tt="first">1st barrel</button><button data-tt="second">2nd barrel</button><button data-tt="locked">Locked</button><button data-tt="kick">Buzz</button><button data-tt="off">Normal</button></div>
   </details>
+  <div class="note"><b>Every number here is our own guess.</b> Minigore's real values are not published, so none are copied from it. They get replaced by measured values once we have reference footage.</div>
+  <h2>Feel presets (movement)</h2>
+  <div class="actions" id="presets"></div>
+  <div class="stat" id="stats"></div>
+  <div id="sliders"></div>
+  <details><summary>Controller deadzones</summary><div id="inputSliders"></div></details>
   <h2>Last shot</h2>
   <div class="stat" id="shotStat">Fire at a dummy.</div>
   <div class="actions"><button id="bRangeReset">Reset range</button><button id="bReset">Reset all</button><button id="bCopy">Copy my settings</button><button id="bHide">Hide panel</button></div>
@@ -70,7 +76,9 @@ $('#app').innerHTML = `
   <h2>Diagnostics</h2><div class="diag" id="diag"></div>
 </aside>
 <button id="panelBtn">Tuning</button>
-<div id="hurtflash"></div><div id="pauseCard"><div><h1>Paused</h1><p><b>Start</b> / <b>Esc</b> resume · <b>B</b> quit to heroes</p><button id="bResume">Resume</button></div></div><div id="over"><div><h1 id="overTitle">Game Over</h1><p id="overSub"></p><div class="big" id="overScore"></div><p id="overBest"></p><button id="bRetry">Play Again</button></div></div><div id="focus"><div><h1>Blob Minigore</h1><p>Click to start · <b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button, pick a hero, <b>A</b> to play.</p></div></div>`;
+<div id="hurtflash"></div><div id="pauseCard"><h1>PAUSED</h1></div><div id="over"><div><h1 id="overTitle">Game Over</h1><p id="overSub"></p><p id="overWave"></p><div class="big" id="overScore"></div><p id="overBest"></p><button id="bRetry" class="primary">Play again</button> <button id="bOverBack">Heroes</button></div></div><div id="focus"><div><h1>Blob Minigore</h1><p>Click to start · <b>WASD</b> move · mouse aims · <b>click</b> fires · <b>R</b> reloads</p><p style="opacity:.8;font-size:13px"><b>Controller:</b> press any button, pick a hero, <b>A</b> to play.</p></div></div>`;
+
+const hud = createHud($('#app'));
 
 /* ------------------------------ engine ------------------------------ */
 const canvas = $('#c');
@@ -135,6 +143,9 @@ function readTuning() {
   P.camKick = tuning.get('fx.camKick'); P.hitPause = tuning.get('fx.hitPause'); P.rumble = tuning.get('fx.rumble') > 0.5; P.numbers = tuning.get('fx.numbers') > 0.5;
 }
 readTuning();
+let feel = buildFeel();                                                       // the trigger effects, rebuilt whenever a trigger setting moves
+function refreshFeel() { feel = buildFeel({ strength: tuning.get('trig.strength'), strength2: tuning.get('trig.strength2'), start: tuning.get('trig.start'), press: tuning.get('trigger.press'), lock: tuning.get('trig.lock'), buzz: tuning.get('trig.buzz') }); }
+refreshFeel();
 const gun = createShotgun({ capacity: P.capacity, interval: P.interval, reload: P.reload });
 const pellets = new PelletSim();
 const stats = { shots: 0, pellets: 0, hits: 0, damage: 0, kills: 0, recent: new Map(), last: null };
@@ -155,9 +166,11 @@ const snap = input.snap;
 
 /* ------------------------------ controller feel: rumble patterns + PS5 adaptive triggers ------------------------------ */
 const dualsense = createDualSense({ onStatus: t => { const el = document.querySelector('#dsStatus'); if (el) el.textContent = t; } });
+const RUMBLE_KEY = { shot: 'fx.rumbleShot', reload: 'fx.rumbleReload', hurt: 'fx.rumbleHurt', kill: 'fx.rumbleKill', world: 'fx.rumbleWorld' };
 const haptics = createHaptics({
   rumble: (strong, weak, ms) => { if (P.rumble && snap.source === 'controller') snap.pad.rumble?.(strong, weak, ms); },      // always the live pad; only for a controller player
-  trigger: dualsense, scale: () => tuning.get('fx.rumbleScale'), triggersOn: () => tuning.get('fx.triggers') > 0.5,
+  trigger: dualsense, triggersOn: () => tuning.get('fx.triggers') > 0.5, feel: () => feel,
+  scale: name => tuning.get('fx.rumbleScale') * tuning.get(RUMBLE_KEY[rumbleCategory(name)]),         // overall strength x the strength of this kind of event
 });
 const releaseTriggers = () => dualsense.release();                              // never leave the triggers stiff when the page goes away
 addEventListener('pagehide', releaseTriggers); document.addEventListener('visibilitychange', () => { if (document.hidden) releaseTriggers(); });
@@ -274,7 +287,9 @@ function simStep(h) {
   if (mode === 'run') {
     const events = sess.step(h, { x: player.x, y: player.y, vx: player.v.x, vy: player.v.y, r: heroes[selected].radius });
     for (const ev of events) {
-      if (ev.type === 'telegraph') { furries.warn(ev.x, ev.y, ev.delay, tierOf(ev.kind, ev.tier).h); }
+      if (ev.type === 'countdown') { hud.countdown(ev.n, ev.wave); audio.sfx.tick?.(ev.n); }
+      else if (ev.type === 'wave') { hud.wave(ev.wave); audio.sfx.wave?.(); haptics.swarm?.(); }
+      else if (ev.type === 'telegraph') { furries.warn(ev.x, ev.y, ev.delay, tierOf(ev.kind, ev.tier).h); }
       else if (ev.type === 'spawn') { audio.sfx.spawn?.(); }
       else if (ev.type === 'swarm') { audio.sfx.swarm?.(); haptics.swarm?.(); }
       else if (ev.type === 'hurt') {
@@ -282,9 +297,10 @@ function simStep(h) {
         shake = Math.max(shake, 0.3); haptics.hurt?.(); audio.sfx.hurt?.();
         const hf = $('#hurtflash'); hf.classList.add('on'); setTimeout(() => hf.classList.remove('on'), 60);
         document.body.classList.toggle('low-hp', sess.run.hp === 1);
+        hud.setHealth(sess.run.hp, sess.run.maxHp);
         heroes[selected].setDamage(sess.run.maxHp - sess.run.hp);                      // hat flies off on the first hit, a plaster on the second
       }
-      else if (ev.type === 'dead') { onGameOver(); }
+      else if (ev.type === 'dead') { hud.setHealth(0, sess.run.maxHp); hud.hideBanner(); onGameOver(); }
     }
   }
   for (const t of targets) {
@@ -347,8 +363,12 @@ function startRun() {
   player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; player.hasAim = false;
   $('#over').classList.remove('on'); document.body.classList.remove('paused', 'low-hp');
   for (const hr of heroes) hr.setDamage(0);
+  hud.reset(sess.run.hp, sess.run.maxHp); panelNav.clear();
 }
-function setPaused(p) { gamePaused = p; document.body.classList.toggle('paused', p && mode === 'run'); }
+function setPaused(p) {
+  gamePaused = p; document.body.classList.toggle('paused', p && mode === 'run');
+  if (p && mode === 'run') panelNav.reset(); else panelNav.clear();
+}
 function updateHint() {
   $('#hint').innerHTML = mode === 'compare'
     ? '<b>1</b><b>2</b><b>3</b> choose · <b>Enter</b> or Play button to run. <b>Training</b> for the range.<br>Controller: <b>D-pad</b>/<b>LB</b><b>RB</b> choose · <b>A</b> play · <b>Y</b> training range.'
@@ -371,7 +391,7 @@ const startFocus = () => { audio.unlock(); $('#focus').classList.add('off'); can
 $('#focus').addEventListener('pointerdown', startFocus); canvas.addEventListener('pointerdown', startFocus);
 
 // controller menus: one action per button press (see src/input/menu.js)
-const nav = createMenuNav();
+const nav = createMenuNav({ directions: true }), panelNav = createPanelNav($('#panel'));
 function menuStep() {
   const cmds = menuCommands(nav.update(snap.pad), { overlayUp: !$('#focus').classList.contains('off'), mode, selected, count: heroes.length, over: sess.run.over, paused: gamePaused });
   for (const c of cmds) {
@@ -383,6 +403,8 @@ function menuStep() {
     else if (c.type === 'retry') startRun();
     else if (c.type === 'pause') setPaused(true);
     else if (c.type === 'resume') setPaused(false);
+    else if (c.type === 'nav') { if (c.dir === 'up') panelNav.move(-1); else if (c.dir === 'down') panelNav.move(1); else panelNav.adjust(c.dir === 'left' ? -1 : 1); }
+    else if (c.type === 'activate') panelNav.press();
   }
 }
 
@@ -408,9 +430,24 @@ function addControls(host, defs, openGroups = []) {
   }
   sync.forEach(f => f());
 }
-addControls($('#sliders'), DEFS.filter(d => d.page === 'hero'), ['Shotgun', 'Aim', 'Feedback', 'Survival run']);
+const FEEL_GROUPS = ['Vibration', 'Adaptive triggers'];
+addControls($('#sliders'), DEFS.filter(d => d.page === 'hero' && !FEEL_GROUPS.includes(d.group)), ['Survival run', 'Feedback']);
+addControls($('#feelSliders'), [...DEFS.filter(d => FEEL_GROUPS.includes(d.group)), { ...DEFS.find(d => d.key === 'trigger.press'), group: 'Adaptive triggers', label: 'Click point (fires here)' }]);
 addControls($('#inputSliders'), DEFS.filter(d => d.page === undefined && d.group !== 'Feel pad'));
-tuning.onChange(() => { sync.forEach(f => f()); readTuning(); updateStats(); audio.setVolume(tuning.get('fx.volume')); });
+let previewT = 0;
+const RUMBLE_PREVIEW = { 'fx.rumbleShot': 'barrel1', 'fx.rumbleReload': 'close', 'fx.rumbleHurt': 'hurt', 'fx.rumbleKill': 'kill', 'fx.rumbleWorld': 'swarm' };
+/** in the pause menu, moving a vibration or trigger setting plays that feel right away, so you tune it by feeling it */
+function previewFeel(k) {
+  if (!k || !gamePaused) return; clearTimeout(previewT);
+  previewT = setTimeout(() => {
+    if (k.startsWith('trig.') || k === 'trigger.press') {
+      if (!dualsense.connected) return;
+      const which = k === 'trig.strength2' ? 'second' : k === 'trig.lock' ? 'locked' : k === 'trig.buzz' ? 'kick' : 'first';
+      haptics.hold(4000); dualsense.retry(); dualsense.set({ right: feel[which], left: { effect: 'off' } });
+    } else if (k.startsWith('fx.rumble')) haptics.play(RUMBLE_PREVIEW[k] || 'barrel1');
+  }, 160);
+}
+tuning.onChange(k => { sync.forEach(f => f()); readTuning(); refreshFeel(); updateStats(); audio.setVolume(tuning.get('fx.volume')); previewFeel(k); });
 audio.setVolume(tuning.get('fx.volume'));
 { const host = $('#presets'); for (const [name, vals] of Object.entries(PRESETS)) { const b = document.createElement('button'); b.textContent = name; b.onclick = () => tuning.apply(vals); host.appendChild(b); } }
 function updateStats() {
@@ -446,7 +483,7 @@ $('#bRange').onclick = () => setMode('play');
   };
   for (const b of document.querySelectorAll('[data-tt]')) b.onclick = () => {
     if (!dualsense.connected) { status('Connect adaptive triggers first (button above).'); return; }
-    haptics.hold(6000); dualsense.retry(); dualsense.set({ right: TRIGGER_FEEL[b.dataset.tt], left: { effect: 'off' } });
+    haptics.hold(6000); dualsense.retry(); dualsense.set({ right: feel[b.dataset.tt], left: { effect: 'off' } });
   };
 }
 $('#bCopy').onclick = async () => {
@@ -474,10 +511,12 @@ function onGameOver() {
   const t = document.getElementById('overTitle'); if (t) t.textContent = 'Game Over';
   const sub = document.getElementById('overSub'); if (sub) sub.textContent = `Survived ${(sess.run.time / 60 | 0)}:${String(sess.run.time % 60 | 0).padStart(2,'0')} · ${sess.run.kills} kills`;
   const sc = document.getElementById('overScore'); if (sc) sc.textContent = sess.run.score;
+  let career = 0; try { career = (+localStorage.getItem('blob.points') || 0) + sess.run.score; localStorage.setItem('blob.points', career); } catch { /* storage unavailable */ }
+  const ow = $('#overWave'); if (ow) ow.textContent = `Reached wave ${sess.waves.state.wave}${career ? ' · ' + career + ' career points' : ''}`;
   const bs = document.getElementById('overBest'); if (bs) bs.textContent = sess.run.score > best ? 'New Best!' : `Best: ${bestScore}`;
   audio.sfx.over?.(); haptics.hurt?.(); document.body.classList.remove('low-hp');
 }
-$('#bRetry').onclick = startRun; $('#bResume').onclick = () => setPaused(false);
+$('#bRetry').onclick = startRun; $('#bResume').onclick = () => setPaused(false); $('#bQuit').onclick = () => setMode('compare'); $('#bOverBack').onclick = () => setMode('compare');
 /* ------------------------------ camera ------------------------------ */
 const focus = new THREE.Vector3(SHOW.x, 0, SHOW.z), _t = new THREE.Vector3();
 function updateCamera(dt) {
@@ -512,7 +551,7 @@ function frame(now) {
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
   input.sample(now); menuStep(); readTuning();
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
-  haptics.update({ mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
+  haptics.update({ mode: mode === 'run' && (gamePaused || sess.run.over) ? 'menu' : mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
   shake = Math.max(0, shake - realDt * 3);
   const dtv = Math.max(dt, 1e-4);
 
@@ -520,7 +559,8 @@ function frame(now) {
     heroes.forEach((h, i) => { const d = demoState(i, clock); h.update(dtv, { x: SHOW.x + (i - 1) * 4.6, y: SHOW.z, ...d }, P); });
   } else {
     const h = heroes[selected];
-    h.update(dtv, { x: player.x, y: player.y, vx: player.vx, vy: player.vy, speed: player.speed, aimYaw: player.hasAim ? Math.atan2(player.aimX, player.aimY) : null, reload: gun.progress, spent: [gun.state.spent[1], gun.state.spent[0]] }, P);
+    const still = gamePaused;   // paused: no walking in place
+    h.update(dtv, { x: player.x, y: player.y, vx: still ? 0 : player.vx, vy: still ? 0 : player.vy, speed: still ? 0 : player.speed, aimYaw: player.hasAim ? Math.atan2(player.aimX, player.aimY) : null, reload: gun.progress, spent: [gun.state.spent[1], gun.state.spent[0]] }, P);
     // aim cone shows spread, range, and the full-damage zone
     aimGroup.visible = mode === 'play' && (player.hasAim || snap.fire); aimGroup.position.set(player.x, 0, player.y); aimGroup.rotation.y = Math.atan2(player.aimX, player.aimY);
     coneOuter.mesh.position.z = coneInner.mesh.position.z = muzzleReach(); coneOuter.set(P.spread, P.range); coneInner.set(P.spread, P.falloffStart);
@@ -531,7 +571,7 @@ function frame(now) {
     h.root.visible = !(mode === 'run' && sess.run.invuln > 0 && !sess.run.over && (clock * 14 | 0) % 2);   // blink while you cannot be hurt
   }
   for (const t of targets) views.get(t).update(dtv, clock);
-  if (mode === 'run') { const r = furries.update(sess.crowd.list, clock, dt, player); shake = Math.max(shake, r.shake); furries.updateWarns(dt, clock); furries.updateSplats(dt); }
+  if (mode === 'run') { const r = furries.update(sess.crowd.list, clock, dt, player); shake = Math.max(shake, r.shake); furries.updateWarns(dt, clock); furries.updateSplats(dt); hud.update(realDt); }
   for (const hr of heroes) hr.updateFx(realDt);
   fx.update(dt); updateCamera(Math.max(realDt, 1e-4)); stage.render();
   if ((now / 100 | 0) !== ((now - raw) / 100 | 0)) updateDiag();

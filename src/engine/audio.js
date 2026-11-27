@@ -40,5 +40,7 @@ export const sfx = {
   spawn() { tone(300, 620, 0.07, 0.06, 'sine'); },
   swarm() { tone(140, 110, 0.5, 0.35, 'sawtooth'); tone(147, 118, 0.5, 0.3, 'sawtooth', 0.2); },
   over() { tone(330, 110, 0.9, 0.4, 'triangle'); tone(220, 70, 1.1, 0.35, 'sine', 0.15); burst(0.4, 0.25, 900, 100); },
+  tick(n = 3) { tone(n === 1 ? 740 : 520, n === 1 ? 740 : 520, 0.11, 0.2, 'square'); },
+  wave() { tone(330, 330, 0.14, 0.26, 'triangle'); tone(440, 440, 0.14, 0.26, 'triangle', 0.11); tone(660, 700, 0.34, 0.3, 'triangle', 0.22); burst(0.25, 0.18, 1200, 200, 0.8, 0.22); },
   combo(n = 1) { tone(500 + n * 60, 900 + n * 80, 0.09, 0.14, 'triangle'); },
 };

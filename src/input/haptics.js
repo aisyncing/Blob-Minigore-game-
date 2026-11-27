@@ -18,6 +18,9 @@ export const RUMBLE = {
   swarm:   [{ at: 0, strong: 0.35, weak: 0.1, ms: 120 }, { at: 220, strong: 0.35, weak: 0.1, ms: 120 }],                                              // a swarm is coming: two low thumps                                                                                                    // a small bump when a dummy pops
 };
 
+/** Which setting scales a pattern: the shot, the reload clicks, being hurt, a kill tap, or the world (swarm thumps). */
+export const rumbleCategory = (name) => (name === 'barrel1' || name === 'barrel2' ? 'shot' : name === 'kill' ? 'kill' : name === 'hurt' ? 'hurt' : name === 'swarm' ? 'world' : 'reload');
+
 /** Scaled, clamped copy of a pattern (scale 0..1 is the player's rumble strength). */
 export function rumblePattern(name, scale = 1) {
   const p = RUMBLE[name]; if (!p) return [];
@@ -32,36 +35,44 @@ export const barrelPattern = (ammoLeft, capacity) => (capacity > 1 && ammoLeft =
 const OFF = { effect: 'off' };
 // The fire trigger is read as "pressed" at 0.5 of its travel, which is the start of zone 5 (zones are tenths of the travel), so the wall
 // runs zones 3-5 and gives way exactly where the shot fires: you feel the click and the gun goes off together.
-export const TRIGGER_FEEL = {
-  first:  { effect: 'weapon', start: 3, end: 5, strength: 5 },     // first barrel: a firm wall, then the click
-  second: { effect: 'weapon', start: 3, end: 5, strength: 8 },     // second barrel: a stiffer wall and a harder snap
-  locked: { effect: 'feedback', position: 1, strength: 8 },         // empty or reloading: the trigger will not pull
-  kick:   { effect: 'vibration', position: 0, amplitude: 8, frequency: 45 },   // a short buzz in the trigger right after a shot
-  off: OFF,
-};
+/** The player's trigger settings (pause menu): resistance of each barrel, where the wall starts, where it breaks (the fire point, 0..1), locked and buzz strength. */
+export const DEFAULT_FEEL = { strength: 5, strength2: 8, start: 3, press: 0.5, lock: 8, buzz: 8 };
+const clampI = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number.isFinite(v) ? v : lo)));
+/** Turn those settings into the four trigger effects. The wall always breaks at the fire point, so the click and the shot are one moment. */
+export function buildFeel(o = {}) {
+  const f = { ...DEFAULT_FEEL, ...o }, start = clampI(f.start, 2, 7), end = clampI(f.press * 10, start + 1, 8);
+  return {
+    first:  { effect: 'weapon', start, end, strength: clampI(f.strength, 1, 8) },                                   // first barrel: a firm wall, then the click
+    second: { effect: 'weapon', start, end, strength: clampI(f.strength2, 1, 8) },                                  // second barrel: a stiffer wall and a harder snap
+    locked: f.lock >= 1 ? { effect: 'feedback', position: 1, strength: clampI(f.lock, 1, 8) } : OFF,               // empty or reloading: the trigger will not pull (0 = free)
+    kick:   f.buzz >= 1 ? { effect: 'vibration', position: 0, amplitude: clampI(f.buzz, 1, 8), frequency: 45 } : OFF,   // a short buzz in the trigger right after a shot (0 = none)
+    off: OFF,
+  };
+}
+export const TRIGGER_FEEL = buildFeel();
 export const KICK_MS = 90;
 
 /** @returns { right, left } trigger effects for the current moment. Only the fire (right) trigger is used. */
-export function triggerPlan({ mode, reloading, ammo, capacity, kick = false }) {
-  if (mode !== 'play' && mode !== 'run') return { right: OFF, left: OFF };
-  if (kick) return { right: TRIGGER_FEEL.kick, left: OFF };
-  if (reloading || ammo <= 0) return { right: TRIGGER_FEEL.locked, left: OFF };
-  return { right: ammo >= capacity ? TRIGGER_FEEL.first : TRIGGER_FEEL.second, left: OFF };
+export function triggerPlan({ mode, reloading, ammo, capacity, kick = false, feel = TRIGGER_FEEL }) {
+  if (mode !== 'play' && mode !== 'run') return { right: OFF, left: OFF };      // menus, pause and game over: the triggers go back to normal
+  if (kick) return { right: feel.kick, left: OFF };
+  if (reloading || ammo <= 0) return { right: feel.locked, left: OFF };
+  return { right: ammo >= capacity ? feel.first : feel.second, left: OFF };
 }
 
 /* ------------------------------ the conductor ------------------------------ */
 /**
  * @param rumble   (strong, weak, ms) => void, or null when no controller can rumble. Called fresh each time, so it always uses the live pad.
  * @param trigger  a createDualSense() object or null
- * @param opts     schedule/clear/now injectable for tests; scale() = rumble strength 0..1; triggersOn() = player setting
+ * @param opts     schedule/clear/now injectable for tests; scale(patternName) = rumble strength 0..1; triggersOn() = player setting; feel() = the trigger effects (buildFeel)
  */
-export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms) => setTimeout(f, ms), clear = id => clearTimeout(id), now = () => performance.now(), scale = () => 1, triggersOn = () => true } = {}) {
+export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms) => setTimeout(f, ms), clear = id => clearTimeout(id), now = () => performance.now(), scale = () => 1, triggersOn = () => true, feel = () => TRIGGER_FEEL } = {}) {
   let timers = [], kickUntil = 0, lastDry = -1e9, holdUntil = 0;
   const cancel = () => { for (const t of timers) clear(t); timers = []; };
   function play(name) {                                         // a new pattern replaces whatever was still playing: the latest event is what you should feel
     const fn = typeof rumble === 'function' ? rumble : null; if (!fn) return;
     cancel();
-    for (const s of rumblePattern(name, scale())) {
+    for (const s of rumblePattern(name, scale(name))) {
       if (s.at === 0) fn(s.strong, s.weak, s.ms); else timers.push(schedule(() => fn(s.strong, s.weak, s.ms), s.at));
     }
   }
@@ -78,7 +89,7 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
     /** Call every frame with the gun's state. Only talks to the controller when something changed. */
     update(state) {
       if (!trigger || !trigger.connected || now() < holdUntil) return null;
-      const plan = triggersOn() ? triggerPlan({ ...state, kick: now() < kickUntil }) : { right: OFF, left: OFF };
+      const plan = triggersOn() ? triggerPlan({ ...state, kick: now() < kickUntil, feel: feel() }) : { right: OFF, left: OFF };
       trigger.set(plan); return plan;
     },
     release() { cancel(); if (trigger && trigger.connected) trigger.release(); },

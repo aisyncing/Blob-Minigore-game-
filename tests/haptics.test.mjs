@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeTrigger, buildReport, crc32, BT_LAYOUTS } from '../src/input/dualsense.js';
-import { RUMBLE, rumblePattern, barrelPattern, triggerPlan, TRIGGER_FEEL, createHaptics, KICK_MS } from '../src/input/haptics.js';
+import { RUMBLE, rumblePattern, barrelPattern, triggerPlan, TRIGGER_FEEL, createHaptics, KICK_MS, buildFeel, DEFAULT_FEEL, rumbleCategory } from '../src/input/haptics.js';
 
 const hex = u => [...u].map(v => v.toString(16).padStart(2, '0')).join(' ');
 
@@ -174,4 +174,36 @@ test('when nothing is accepted: one clear message listing what was tried, no spa
   for (let i = 0; i < 5; i++) ds.set({ right: { effect: 'weapon', start: 3, end: 5, strength: i + 1 } }); await tick(60); assert.equal(f.tried.length, n, 'no repeated attempts after failing');
   ds.retry(); ds.set({ right: TRIGGER_FEEL.second }); await tick(40); assert.ok(f.tried.length > n, 'retry sends again');
   ds.setTransport('usb'); ds.set({ right: TRIGGER_FEEL.first }); await tick(40); assert.equal(f.tried.at(-1).id, 0x02, 'a forced layout is used as chosen');
+});
+
+/* ---- the pause-menu settings: trigger feel and per-event vibration */
+test('default trigger settings reproduce the original feel exactly', () => {
+  assert.deepEqual(buildFeel(), TRIGGER_FEEL); assert.deepEqual(TRIGGER_FEEL.first, { effect: 'weapon', start: 3, end: 5, strength: 5 }); assert.deepEqual(TRIGGER_FEEL.second, { effect: 'weapon', start: 3, end: 5, strength: 8 });
+});
+test('resistance, wall start and buzz settings reach the effects', () => {
+  const f = buildFeel({ strength: 2, strength2: 6, start: 4, buzz: 3 });
+  assert.equal(f.first.strength, 2); assert.equal(f.second.strength, 6); assert.equal(f.first.start, 4); assert.equal(f.second.start, 4); assert.equal(f.kick.amplitude, 3);
+});
+test('the click point follows the fire threshold, so the click and the shot are one moment', () => {
+  for (const press of [0.3, 0.5, 0.7]) { const f = buildFeel({ press, start: 2 }); assert.equal(f.first.end, Math.round(press * 10)); }
+  assert.ok(buildFeel({ press: 0.2, start: 5 }).first.end > 5, 'the wall always has some length');
+});
+test('locked and buzz can be turned off with 0', () => {
+  const f = buildFeel({ lock: 0, buzz: 0 }); assert.deepEqual(f.locked, { effect: 'off' }); assert.deepEqual(f.kick, { effect: 'off' });
+  assert.equal(buildFeel({ lock: 3 }).locked.strength, 3);
+});
+test('out-of-range settings are clamped into what the controller accepts', () => {
+  const f = buildFeel({ strength: 99, strength2: -5, start: 0, press: 9, lock: 99, buzz: 99 });
+  assert.equal(f.first.strength, 8); assert.equal(f.second.strength, 1); assert.ok(f.first.start >= 2 && f.first.end <= 8 && f.first.end > f.first.start); assert.equal(f.locked.strength, 8); assert.equal(f.kick.amplitude, 8);
+  for (const e of Object.values(f)) { const b = encodeTrigger(e); assert.equal(b.length, 11); assert.ok([...b].every(v => v >= 0 && v <= 255)); }
+});
+test('the trigger plan uses the player\'s feel, and goes slack in the pause menu', () => {
+  const feel = buildFeel({ strength: 1 }), st = { reloading: false, ammo: 2, capacity: 2, feel };
+  assert.equal(triggerPlan({ ...st, mode: 'run' }).right.strength, 1); assert.deepEqual(triggerPlan({ ...st, mode: 'menu' }).right, { effect: 'off' });
+  const r = rig({ feel: () => feel }); r.h.update({ mode: 'run', reloading: false, ammo: 2, capacity: 2 }); assert.equal(r.sets.at(-1).right.strength, 1);
+});
+test('each kind of event has its own vibration setting', () => {
+  assert.equal(rumbleCategory('barrel1'), 'shot'); assert.equal(rumbleCategory('barrel2'), 'shot'); for (const n of ['eject', 'grab', 'insert', 'close', 'dry']) assert.equal(rumbleCategory(n), 'reload');
+  assert.equal(rumbleCategory('hurt'), 'hurt'); assert.equal(rumbleCategory('kill'), 'kill'); assert.equal(rumbleCategory('swarm'), 'world');
+  const r = rig({ scale: name => (name === 'hurt' ? 0.25 : 1) }); r.h.hurt(); r.advance(10); assert.equal(r.calls[0][0], 0.25); r.h.shot(1, 2); r.advance(10); assert.equal(r.calls.at(-1)[0] > 0.25, true, 'a shot is not scaled by the hurt setting');
 });

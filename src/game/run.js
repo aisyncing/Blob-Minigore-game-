@@ -2,11 +2,12 @@
 // Pure logic, unit tested; the headless bot (tools/bot.mjs) plays it without a browser.
 import { Crowd } from './crowd.js';
 import { createDirector } from './director.js';
+import { createWaves } from './waves.js';
 
 // Three hits: 3/3, 2/3, 1/3, then the third damaging hit ends the run. Each hit gives a window of invulnerability and a burst of
 // speed to get out of the crowd. Nothing heals.
 export const RUN = { invuln: 2.0, boost: 2.6, boostMul: 1.3, comboWindow: 2.5, killsPerStep: 4, maxMult: 8, rampStart: 0.7, rampSecs: 150 };
-/** how fast furries move at a given run time, as a share of their full speed: gentle first wave, full speed after rampSecs */
+/** how fast furries move at a given difficulty time (the wave system's intensity), as a share of their full speed: gentle first wave, full speed after rampSecs */
 export const speedRamp = (t) => RUN.rampStart + (1 - RUN.rampStart) * Math.min(1, t / RUN.rampSecs);
 
 export function createRun({ hearts = 3 } = {}) {
@@ -25,16 +26,17 @@ export function createRun({ hearts = 3 } = {}) {
 
 /**
  * @param opts { world, bounds, rng, hearts, speed () => multiplier, pressure () => multiplier, playerRadius }
- * step(dt, player) → events: telegraph | spawn | swarm | hurt {enemy} | dead
+ * step(dt, player) → events: countdown {wave,n} | wave {wave} | telegraph | spawn | swarm | hurt {enemy} | dead
  */
 export function createSession({ world, bounds, rng = Math.random, hearts = 3, speed = () => 1, pressure = () => 1, playerRadius = 0.5 } = {}) {
   const crowd = new Crowd(world, { rng });
   const director = createDirector({ world, bounds, rng, pressure });
+  const waves = createWaves();
   let run = createRun({ hearts }), acc = 0;
   const FIXED = 1 / 60;
   const S = {
-    crowd, director, get run() { return run; },
-    reset(h = hearts) { crowd.clear(); director.reset(); run = createRun({ hearts: h }); acc = 0; },
+    crowd, director, waves, get run() { return run; },
+    reset(h = hearts) { crowd.clear(); director.reset(); waves.reset(); run = createRun({ hearts: h }); acc = 0; },
     step(dt, player) {
       const ev = [];
       if (run.over) return ev;
@@ -42,10 +44,11 @@ export function createSession({ world, bounds, rng = Math.random, hearts = 3, sp
       acc += dt;
       while (acc >= FIXED && !run.over) {                                       // the crowd runs at a steady 60 Hz whatever the simulation rate
         acc -= FIXED;
-        for (const d of director.update(FIXED, { player, cost: crowd.cost })) {
+        ev.push(...waves.update(FIXED, { time: run.time, kills: run.kills }));
+        for (const d of director.update(FIXED, { player, cost: crowd.cost, t: waves.state.intensity, hold: waves.holding })) {
           if (d.type === 'spawn') { const e = crowd.spawn(d.kind, d.tier, d.x, d.y); ev.push({ type: 'spawn', enemy: e }); } else ev.push(d);
         }
-        const contacts = crowd.step(FIXED, { x: player.x, y: player.y, vx: player.vx || 0, vy: player.vy || 0, r: player.r ?? playerRadius }, { speedMul: speed() * speedRamp(run.time), canHurt: run.invuln <= 0 });
+        const contacts = crowd.step(FIXED, { x: player.x, y: player.y, vx: player.vx || 0, vy: player.vy || 0, r: player.r ?? playerRadius }, { speedMul: speed() * speedRamp(waves.state.intensity), canHurt: run.invuln <= 0 });
         for (const e of contacts) { if (run.hurt()) { ev.push({ type: 'hurt', enemy: e }); if (run.over) ev.push({ type: 'dead' }); break; } }
       }
       return ev;

@@ -45,7 +45,7 @@ function blocked(x, y, world, pad) {
 
 export function createDirector({ world, bounds, rng = Math.random, pressure = () => 1, params = {} } = {}) {
   const P = { ...DIRECTOR, ...params };
-  const D = { t: 0, cooldown: 3.5, pending: [], nextSwarm: P.firstSwarm, swarms: 0 };
+  const D = { t: 0, cooldown: 1, pending: [], nextSwarm: P.firstSwarm, swarms: 0 };
   const cap = () => Math.min(P.maxCap, (P.startCap + P.capPerSec * D.t) * pressure());
   const pendingCost = () => D.pending.reduce((s, p) => s + KINDS[p.kind].tiers[p.tier].cost, 0);
 
@@ -59,11 +59,13 @@ export function createDirector({ world, bounds, rng = Math.random, pressure = ()
   return {
     state: D, cap,
     /** @returns events: { type: 'telegraph' | 'spawn' | 'swarm', ... } */
-    update(dt, { player, cost = 0 }) {
-      const ev = []; D.t += dt;
+    /** `t`: the wave system's difficulty clock (replaces the director's own); `hold`: a wave countdown is running, so schedule nothing new */
+    update(dt, { player, cost = 0, t = null, hold = false }) {
+      const ev = []; if (t === null) D.t += dt; else D.t = Math.max(D.t, t);
       // pending spawns pop in when their warning runs out
       for (const p of D.pending) p.left -= dt;
       for (let i = D.pending.length - 1; i >= 0; i--) if (D.pending[i].left <= 0) { const p = D.pending.splice(i, 1)[0]; ev.push({ type: 'spawn', kind: p.kind, tier: p.tier, x: p.x, y: p.y }); }
+      if (hold) return ev;
       // a swarm: a ring around the player, or a line along one side, on top of the budget
       if (D.t >= D.nextSwarm) {
         D.swarms++; D.nextSwarm = D.t + P.swarmEvery + (rng() * 2 - 1) * P.swarmJitter;
@@ -87,6 +89,6 @@ export function createDirector({ world, bounds, rng = Math.random, pressure = ()
       }
       return ev;
     },
-    reset() { D.t = 0; D.cooldown = 3.5; D.pending.length = 0; D.nextSwarm = P.firstSwarm; D.swarms = 0; },
+    reset() { D.t = 0; D.cooldown = 1; D.pending.length = 0; D.nextSwarm = P.firstSwarm; D.swarms = 0; },
   };
 }

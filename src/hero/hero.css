@@ -65,17 +65,63 @@ body.mode-compare #hint{top:max(58px,calc(env(safe-area-inset-top,0px) + 50px));
 #panel .hint{font-size:12px;line-height:1.45;color:var(--dim);margin:6px 0}
 #panel select{font:inherit;font-size:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:4px 6px}
 
-/* ---- survival run: nothing on screen while you play; the menus come back on pause and game over ---- */
+/* ---- survival run: only the health bar and the wave banner while you play; the settings come back on pause ---- */
 body.mode-run #top,body.mode-run #hint,body.mode-run #ammo,body.mode-run #panelBtn,body.mode-run #cards{display:none!important}
 body.mode-run #panel{display:none}
-body.mode-run.paused #top{display:flex!important} body.mode-run.paused #panelBtn{display:block!important}
-body.mode-run.paused #panel:not(.collapsed){display:block}
+body.mode-run.paused #panel{display:block!important;z-index:6}
+#pauseHead{display:none}
+body.mode-run.paused #pauseHead{display:block;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+#pauseHead h2{font-size:15px;color:var(--ink);margin:0 0 6px}
+.pad-hint{font-size:11px;line-height:1.6} .pad-hint b{background:var(--ink);color:#122;border-radius:5px;padding:0 5px;margin:0 1px}
+.nav-sel{outline:2px solid var(--gold);outline-offset:2px;border-radius:8px;background:rgba(255,210,63,.1)}
+
+#hud{position:fixed;inset:0;pointer-events:none;display:none;z-index:2}
+body.mode-run #hud{display:block}
+
+/* health bar: a heart badge over the left end, a dark track with a notch for each hit you can take, green fill, a white chunk
+   that trails behind when you lose health, and a red pulsing state when you are nearly out */
+#hp{position:absolute;left:max(20px,env(safe-area-inset-left,0px));top:max(18px,env(safe-area-inset-top,0px));display:flex;align-items:center;will-change:transform}
+.hp-badge{position:relative;z-index:2;flex:none;width:clamp(54px,5.8vw,72px);aspect-ratio:1;border-radius:50%;display:grid;place-items:center;margin-right:-20px;
+  background:radial-gradient(circle at 35% 28%,#ff9db9,#e23c6b 60%,#a8204a);border:3px solid #fff3d6;box-shadow:0 4px 0 #1d1530,0 0 0 3px #1d1530;transition:background .3s}
+.hp-badge svg{width:54%;fill:#fff3d6;filter:drop-shadow(0 2px 0 rgba(29,21,48,.55))}
+.hp-track{position:relative;width:clamp(230px,30vw,420px);height:clamp(30px,3.4vw,42px);border-radius:999px;overflow:hidden;background:#1d1530;
+  box-shadow:inset 0 3px 6px rgba(0,0,0,.55),0 4px 0 #0e0a18,0 0 0 3px #fff3d6,0 0 0 6px #1d1530}
+.hp-ghost,.hp-fill{position:absolute;left:24px;top:4px;bottom:4px;width:calc((100% - 28px) * var(--f,1));border-radius:999px}
+.hp-ghost{background:linear-gradient(#fff,#cfd6f5)}
+.hp-fill{background:linear-gradient(#a6f9b0,#3fd25f 45%,#1ea84a);box-shadow:0 0 10px rgba(80,230,110,.45)}
+.hp-shine{position:absolute;left:8px;right:8px;top:2px;height:32%;border-radius:999px;background:rgba(255,255,255,.42)}
+.hp-ticks{position:absolute;left:24px;right:4px;top:3px;bottom:3px;pointer-events:none}
+.hp-ticks i{position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;background:#1d1530;border-radius:2px}
+.hp-flash{position:absolute;inset:0;background:#fff;opacity:0;border-radius:inherit}
+.hp-badge.pop{animation:hppop .55s ease-out}
+@keyframes hppop{0%{transform:scale(1.55) rotate(-12deg)}55%{transform:scale(.9) rotate(4deg)}100%{transform:scale(1) rotate(0)}}
+#hp.critical .hp-fill{background:linear-gradient(#ffa3a3,#f04545 45%,#b81d1d);animation:hpcrit .8s ease-in-out infinite}
+#hp.critical .hp-badge{background:radial-gradient(circle at 35% 28%,#ff8a8a,#e02a2a 60%,#8f1414);animation:hpbeat .8s ease-in-out infinite}
+@keyframes hpcrit{0%,100%{box-shadow:0 0 6px rgba(255,70,70,.5);filter:brightness(1)}50%{box-shadow:0 0 18px rgba(255,70,70,.95);filter:brightness(1.2)}}
+@keyframes hpbeat{0%,100%{transform:scale(1)}50%{transform:scale(1.13)}}
+
+/* wave banner: a countdown, then the wave number */
+#banner{position:absolute;left:50%;top:8%;transform:translateX(-50%);text-align:center;width:max-content;max-width:94vw;opacity:0;transition:opacity .3s}
+#banner.show{opacity:1}
+.b-small{font-size:clamp(12px,1.7vw,20px);letter-spacing:.34em;font-weight:700;color:#fff3d6;text-shadow:0 2px 0 #1d1530,0 0 14px rgba(255,111,177,.7);min-height:1.3em;padding-left:.34em}
+.b-big{font-size:clamp(64px,11vw,150px);line-height:1;font-weight:700;color:#ffd23f;paint-order:stroke fill;-webkit-text-stroke:clamp(5px,.9vw,11px) #1d1530;text-shadow:0 .06em 0 #1d1530,0 0 .4em rgba(255,111,177,.55)}
+.b-big.title{font-size:clamp(46px,9.5vw,124px);color:#fff3d6}
+.b-big.tick{animation:bigtick .55s cubic-bezier(.2,1.2,.4,1)}
+.b-big.slam{animation:bigslam .7s cubic-bezier(.2,1.1,.3,1)}
+@keyframes bigtick{0%{transform:scale(1.9);opacity:0}30%{opacity:1}100%{transform:scale(1);opacity:1}}
+@keyframes bigslam{0%{transform:scale(2.3) rotate(-4deg);opacity:0}40%{transform:scale(.92) rotate(1.5deg);opacity:1}70%{transform:scale(1.06)}100%{transform:scale(1) rotate(0)}}
+
 #hurtflash{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(255,40,70,0) 35%,rgba(200,20,40,.5) 100%);opacity:0;transition:opacity .4s}
 #hurtflash.on{opacity:1;transition:none}
 body.low-hp #hurtflash:not(.on){animation:lowhp 1.15s ease-in-out infinite}
 @keyframes lowhp{0%,100%{opacity:0}50%{opacity:.4}}
-#pauseCard,#over{position:fixed;inset:0;display:none;place-items:center;background:rgba(8,12,18,.58);z-index:4}
-body.paused #pauseCard,#over.on{display:grid}
-#pauseCard>div,#over>div{background:#fff3d6;color:#1d1530;padding:22px 34px;border-radius:22px;text-align:center;box-shadow:0 8px 0 var(--pink);min-width:280px;max-width:calc(100% - 32px)}
-#pauseCard h1,#over h1{margin:0 0 6px;font-size:32px} #pauseCard p,#over p{margin:5px 0;font-size:15px;font-weight:600} #over .big{font-size:40px;margin:8px 0;font-weight:700}
-#pauseCard button,#over button{margin-top:10px;font-size:16px;padding:8px 18px}
+
+#pauseCard{position:fixed;inset:0;display:none;place-items:center;background:rgba(8,12,18,.55);z-index:3;pointer-events:none}
+body.paused #pauseCard{display:grid}
+#pauseCard h1{margin:0;font-size:clamp(38px,8vw,96px);letter-spacing:.3em;padding-left:.3em;color:#fff3d6;text-shadow:0 .06em 0 #1d1530;position:relative;left:-150px}
+@media (max-width:900px){#pauseCard h1{left:0}}
+#over{position:fixed;inset:0;display:none;place-items:center;background:rgba(8,12,18,.58);z-index:4}
+#over.on{display:grid}
+#over>div{background:#fff3d6;color:#1d1530;padding:22px 34px;border-radius:22px;text-align:center;box-shadow:0 8px 0 var(--pink);min-width:280px;max-width:calc(100% - 32px)}
+#over h1{margin:0 0 6px;font-size:32px} #over p{margin:5px 0;font-size:15px;font-weight:600} #over .big{font-size:40px;margin:8px 0;font-weight:700}
+#over button{margin-top:10px;font-size:16px;padding:8px 18px}
