@@ -25,13 +25,13 @@ export const HID_SHIM = `(() => { window.__hidLog = [];
     async open() { this.opened = true; }, async close() { this.opened = false; }, async sendReport(id, data) { window.__hidLog.push({ id, data: Array.from(data) }); } };
   Object.defineProperty(navigator, 'hid', { configurable: true, value: { requestDevice: async () => [dev], getDevices: async () => [], addEventListener() {} } }); })();`;
 
-export async function openGame({ file = 'dist/hero.html', viewport = { width: 1280, height: 720 }, hook = '__hero', hid = false } = {}) {
+export async function openGame({ file = 'dist/hero.html', viewport = { width: 1280, height: 720 }, hook = '__hero', hid = false, practice = true } = {}) {
   const browser = await chromium.launch();
   const page = await (await browser.newContext({ viewport })).newPage();
   const errors = []; page.on('pageerror', e => errors.push(String(e))); page.on('console', m => { if (m.type() === 'error' && !/net::ERR_FAILED/.test(m.text())) errors.push(m.text()); });
   await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
   await page.addInitScript(PAD_SHIM); if (hid) await page.addInitScript(HID_SHIM);
-  await page.goto(pathToFileURL(resolve(file)).href);
+  await page.goto(pathToFileURL(resolve(file)).href + (practice && /hero\.html$/.test(file) ? '?practice' : ''));     // the old tests are about the training range
   await page.waitForFunction(h => window[h], hook);
   const pad = (o) => page.evaluate(o => window.__padSet(o), o);
   const tap = async (name, ms = 60) => { await pad({ buttons: { [name]: 1 } }); await page.waitForTimeout(ms); await pad({ buttons: { [name]: 0 } }); await page.waitForTimeout(ms); };

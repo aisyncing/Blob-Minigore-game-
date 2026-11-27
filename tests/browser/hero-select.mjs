@@ -11,7 +11,7 @@ const METHODS = {
 const LAUNCH = { 'Play button': g => g.page.click('#bMode'), 'Enter key': g => g.page.keyboard.press('Enter'), 'controller A': g => g.tap('A') };
 for (const [method, select] of Object.entries(METHODS)) for (const [launchName, launch] of Object.entries(LAUNCH)) for (const target of [0, 1, 2]) {
   const g = await openGame(); const { page } = g;
-  await page.keyboard.press('KeyZ'); await page.waitForTimeout(50);              // dismiss the title overlay
+  await page.click('#bStart'); await page.waitForTimeout(50);                  // leave the controller setup screen
   // go to a different hero first so the target is a real change, then select the target
   await select(g, (target + 1) % 3); await select(g, target); await page.waitForTimeout(80);
   assert.equal(await label(page), `Play as ${NAMES[target]}`, `${method} -> ${NAMES[target]}: label updates immediately`);

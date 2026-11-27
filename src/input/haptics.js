@@ -17,11 +17,12 @@ export const RUMBLE = {
   // "smart" patterns: chosen by what actually happened, not just by which button was pressed
   thud:    [{ at: 0, strong: 0.45, weak: 0.20, ms: 40 }, { at: 40, strong: 0.15, weak: 0.05, ms: 40 }],                                                              // pellets landed: a dull impact you feel in the palms
   pop:     [{ at: 0, strong: 0.55, weak: 0.85, ms: 45 }, { at: 45, strong: 0.35, weak: 0.30, ms: 55 }, { at: 100, strong: 0.12, weak: 0.05, ms: 60 }],             // a dummy bursts: sharper and bigger than a plain hit
+  hurt:    [{ at: 0, strong: 1.0, weak: 0.8, ms: 90 }, { at: 90, strong: 0.5, weak: 0.3, ms: 110 }, { at: 200, strong: 0.2, weak: 0.1, ms: 120 }],                  // a critter bit you
   bump:    [{ at: 0, strong: 0.50, weak: 0.15, ms: 50 }, { at: 50, strong: 0.15, weak: 0.05, ms: 40 }],                                                              // running into a wall
 };
 
 /** Which of the player's volume sliders a pattern belongs to. */
-export const GROUP = { barrel1: 'shoot', barrel2: 'shoot', thud: 'shoot', pop: 'shoot', kill: 'shoot', eject: 'reload', grab: 'reload', insert: 'reload', close: 'reload', dry: 'reload', bump: 'walk' };
+export const GROUP = { barrel1: 'shoot', barrel2: 'shoot', thud: 'shoot', pop: 'shoot', kill: 'shoot', hurt: 'shoot', eject: 'reload', grab: 'reload', insert: 'reload', close: 'reload', dry: 'reload', bump: 'walk' };
 
 /** Scaled, clamped copy of a pattern (scale 0..1 is the player's rumble strength). */
 export function rumblePattern(name, scale = 1) {
@@ -72,7 +73,11 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
   }
   return {
     play,
-    shot(ammoLeft, capacity) { play(barrelPattern(ammoLeft, capacity)); kickUntil = now() + KICK_MS; },
+    shot(ammoLeft, capacity) {
+      kickUntil = now() + KICK_MS;
+      if (trigger && trigger.connected && triggersOn() && now() >= holdUntil) trigger.set({ right: TRIGGER_FEEL.kick, left: OFF });      // the trigger buzz goes out first, so the motors' report cannot delay it
+      play(barrelPattern(ammoLeft, capacity));
+    },
     reload(stage) { if (RUMBLE[stage]) play(stage); },
     kill() { play('kill'); },
     /** A pellet landed (or killed). Hits from one blast arrive over a few frames, so they are collected and felt once:

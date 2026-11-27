@@ -5,7 +5,7 @@ import { createStage, clamp, R2 } from '../engine/stage.js';
 import { createFx } from '../engine/fx.js';
 import * as audio from '../engine/audio.js';
 import { createArena, SPAWN } from '../game/arena.js';
-import { LAYOUT } from '../game/layout.js';
+import { LAYOUT, BOUNDS } from '../game/layout.js';
 import { resolveWorld, circleVsCircle } from '../game/collide.js';
 import { stepVelocity, moveStats } from '../game/movement.js';
 import { PelletSim, pelletPattern } from '../game/pellets.js';
@@ -13,6 +13,9 @@ import { createShotgun } from '../game/shotgun.js';
 import { chooseAim } from '../game/assist.js';
 import { launchBlast } from '../game/blast.js';
 import { Target } from '../game/targets.js';
+import { Critter } from '../game/critters.js';
+import { createDirector, waveSpec } from '../game/waves.js';
+import { createHealth, createScore } from '../game/run.js';
 import { mouseAim } from '../input/process.js';
 import { createInput } from '../input/source.js';
 import { createMenuNav, menuCommands } from '../input/menu.js';
@@ -23,6 +26,7 @@ import { DESIGNS } from './designs.js';
 import { Hero } from './hero.js';
 import { loadRig } from './rigAsset.js';
 import { DummyView } from './dummy.js';
+import { CritterView, PALETTE } from './critter.js';
 
 const STEP = 1 / 120;
 const SHOW = { x: 0, z: 90 };                       // the compare stage lives far from the arena
@@ -36,10 +40,15 @@ $('#app').innerHTML = `
   <h1>Blob Shooter</h1>
   <button id="bMode" class="primary">Play</button>
   <button id="bPad">Controller</button>
+  <button id="bPractice">Practice range</button>
   <span class="pill" id="chipSrc">Keyboard + mouse</span>
 </div>
 <div id="cards"></div>
 <div id="hint"></div>
+<div id="hud"><div id="hearts"></div><div id="scoreBox"><b id="scoreV">0</b><span id="comboV"></span></div><div id="waveV"></div></div>
+<div id="banner"><b></b><small></small></div>
+<div id="arrows"></div>
+<div id="over"><div class="box"><h2>Game over</h2><p id="overStats"></p><p id="overBest"></p><button id="bRetry" class="primary big">Play again</button><small>Press <b>A</b> on the controller or Enter</small></div></div>
 <div id="ammo"><div id="shells"></div><div id="reloadBar"><i></i></div></div>
 <aside id="panel">
   <h2>Game feel</h2>
@@ -100,7 +109,9 @@ const pick = new THREE.Mesh(new THREE.RingGeometry(1.85, 2.05, 40), new THREE.Me
 const targets = [], views = new Map();
 for (const [x, y] of LAYOUT.range.still) targets.push(new Target({ x, y }));
 { const pc = LAYOUT.range.patrol; for (let i = 0; i < pc.count; i++) targets.push(new Target({ x: 0, y: 0, path: pc.path, speed: pc.speed, phase: i / pc.count })); }
-for (const t of targets) views.set(t, new DummyView(arena.group, t, stage.camera));
+const dummies = targets.slice();                          // the training dummies; targets = dummies + every critter that is out of the ground
+for (const t of dummies) views.set(t, new DummyView(arena.group, t, stage.camera));
+const critters = [];                                       // every critter, including ones still warning, climbing out, or just killed
 
 /* ------------------------------ aiming visuals ------------------------------ */
 const aimGroup = new THREE.Group(); stage.scene.add(aimGroup);
@@ -165,6 +176,56 @@ const releaseTriggers = () => dualsense.release();                              
 addEventListener('pagehide', releaseTriggers); document.addEventListener('visibilitychange', () => { if (document.hidden) releaseTriggers(); });
 dualsense.autoConnect();                                                        // a controller allowed before reconnects by itself
 
+/* ------------------------------ the run: waves of critters, hearts, score ------------------------------ */
+const health = createHealth(), score = createScore(), director = createDirector();
+const bestKey = 'blobshooter.best';
+const loadBest = () => { try { return +localStorage.getItem(bestKey) || 0; } catch { return 0; } };
+const run = { mode: /[?&]practice/.test(location.search) ? 'practice' : 'run', state: 'idle', overT: 0, best: loadBest(), time: 0, lastHp: -1, lastPts: -1, lastWave: -1, lastCombo: '' };   // mode: 'run' (survival) or 'practice' (just the dummies)
+const syncTargets = () => { targets.length = dummies.length; for (const c of critters) if (c.alive) targets.push(c); };
+function addCritter(c) { critters.push(c); views.set(c, new CritterView(arena.group, c)); return c; }
+function clearCritters() { for (const c of critters) { views.get(c)?.dispose(); views.delete(c); } critters.length = 0; syncTargets(); }
+function setDummies(on) { for (const t of dummies) { t.alive = on; t.hp = t.maxHp; t.respawnT = on ? 2.5 : 1e9; t.deadFor = 0; views.get(t).group.visible = on; if (on) views.get(t).respawn(); } }
+function clearSpot(x, y, r) {
+  for (const c of arena.world.circles) if (Math.hypot(x - c.x, y - c.y) < c.r + r) return false;
+  for (const b of arena.world.boxes) { const qx = Math.max(b.x - b.hw, Math.min(b.x + b.hw, x)), qy = Math.max(b.y - b.hh, Math.min(b.y + b.hh, y)); if (Math.hypot(x - qx, y - qy) < r) return false; }
+  return true;
+}
+function spawnCritter(tier) {                                  // out of the ground somewhere away from the hero, never inside a wall
+  let x = 0, y = 0;
+  for (let i = 0; i < 24; i++) { x = R2(BOUNDS.minX + 2, BOUNDS.maxX - 2); y = R2(BOUNDS.minY + 2, BOUNDS.maxY - 2); if (Math.hypot(x - player.x, y - player.y) >= 11 && clearSpot(x, y, 1.2)) break; }
+  addCritter(new Critter({ tier, x, y }));
+}
+function banner(title, sub = '') { const el = $('#banner'); el.querySelector('b').textContent = title; el.querySelector('small').textContent = sub; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
+function startRun() {
+  clearCritters(); director.reset(); health.reset(); score.reset(); run.state = run.mode === 'run' ? 'playing' : 'idle'; run.overT = 0; run.time = 0; run.lastHp = run.lastPts = run.lastWave = -1;
+  player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); pauseT = 0;
+  setDummies(run.mode === 'practice'); $('#over').classList.remove('show'); heroes[selected].root.visible = true;
+  $('#bPractice').textContent = run.mode === 'run' ? 'Practice range' : 'Back to survival';
+  document.body.classList.toggle('practice', run.mode === 'practice');
+}
+function endRun() {
+  run.state = 'over'; run.overT = 0; audio.sfx.over(); haptics.play('hurt');
+  const pts = score.state.points, isBest = pts > run.best; if (isBest) { run.best = pts; try { localStorage.setItem(bestKey, String(pts)); } catch { /* ignore */ } }
+  $('#overStats').textContent = `Wave ${Math.max(1, director.state.wave)} · ${score.state.kills} kills · ${pts.toLocaleString()} points`;
+  $('#overBest').textContent = isBest ? 'New best score!' : `Best: ${run.best.toLocaleString()}`; $('#over').classList.add('show'); heroes[selected].root.visible = true;
+}
+function hurtPlayer(c) {
+  if (!health.hit(1)) return;
+  const dx = player.x - c.x, dy = player.y - c.y, d = Math.hypot(dx, dy) || 1; player.kb.x += dx / d * 6; player.kb.y += dy / d * 6;
+  shake = Math.max(shake, 0.55); pauseT = Math.max(pauseT, 0.05); audio.sfx.hurt(); haptics.play('hurt'); fx.sparks(player.x, player.y, dx / d, dy / d, '#ff6b6b', 8);
+  const vg = $('#vig'); vg.classList.add('hurt'); setTimeout(() => vg.classList.remove('hurt'), 260);
+  if (health.dead) endRun();
+}
+function critterDied(c, h) {
+  const pal = PALETTE[c.tier], gained = score.kill(c.def.score); c.goneAt = clock + 0.25;
+  for (const k of c.splits()) addCritter(k);
+  if (run.mode === 'run') fx.number(c.x, 2.4, c.y, '+' + gained, score.mult > 1 ? '#ffd23f' : '#ffffff');
+  const n = c.tier === 'big' ? 26 : c.tier === 'mid' ? 16 : 9;
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, sp = R2(2, 6); fx.emit(c.x, 0.9, c.y, Math.cos(a) * sp, R2(2, 6), Math.sin(a) * sp, R2(0.4, 0.8), R2(0.07, 0.15), i & 1 ? pal.body : pal.tuft, { g: 14, op: 1 }); }
+  fx.ring(c.x, c.y, c.r * 2.4, pal.body, 0.4);
+  if (c.tier === 'big') pauseT = Math.max(pauseT, P.hitPause);
+}
+
 /* ------------------------------ shooting ------------------------------ */
 const _m = new THREE.Vector3();
 function muzzleReach() { return heroes[selected].muzzleReach; }
@@ -194,14 +255,15 @@ function onHit(h) {
     const tg = h.ref, v = views.get(tg), r = tg.damage(h.damage);
     haptics.hit(r.killed, smart());
     stats.hits++; stats.damage += r.dealt; if (st) { st.hits++; st.damage += r.dealt; st.nearest = Math.min(st.nearest, h.dist); }
-    v.hit(h.dx, h.dy, h.damage); fx.sparks(h.x, h.y, h.nx, h.ny, '#fff2c4', 2);
+    v.hit(h.dx, h.dy, h.damage); tg.knock?.(h.dx, h.dy, h.damage); fx.sparks(h.x, h.y, h.nx, h.ny, '#fff2c4', 2);
     for (let i = 0; i < 2; i++) fx.emit(h.x, 0.9, h.y, h.nx * R2(1, 3) + R2(-1, 1), R2(0.5, 2), h.ny * R2(1, 3) + R2(-1, 1), R2(0.25, 0.4), R2(0.06, 0.11), '#e8c85a', { g: 9, op: 0.95 });
     tg.dmgAcc = (tg.dmgAcc || 0) + r.dealt; tg.dmgT = 0.09; tg.dmgKill = tg.dmgKill || r.killed;
     if (!(tg.sndT > 0)) { audio.sfx.hit(clamp(h.damage / 12, 0.3, 1)); tg.sndT = 0.05; }
     if (r.killed) {
-      stats.kills++; if (st) st.kills++; v.kill(); audio.sfx.pop(); pauseT = Math.max(pauseT, P.hitPause);
+      stats.kills++; if (st) st.kills++; v.kill(); audio.sfx.pop(); if (tg.kind === 'critter') critterDied(tg, h); else { pauseT = Math.max(pauseT, P.hitPause);
       for (let i = 0; i < 22; i++) { const a = Math.random() * 6.28, sp = R2(2, 6); fx.emit(tg.x, 1, tg.y, Math.cos(a) * sp, R2(2, 6), Math.sin(a) * sp, R2(0.5, 0.9), R2(0.08, 0.16), ['#e8c85a', '#c9a66b', '#fff6e8', '#e85d5d'][i & 3], { g: 14, op: 1 }); }
       fx.ring(tg.x, tg.y, 2.6, '#ffd23f', 0.5);
+      }
     }
   } else {
     fx.sparks(h.x, h.y, h.nx, h.ny, '#ffe9a8', 4); fx.emit(h.x, 0.5, h.y, h.nx * 0.5, 0.4, h.ny * 0.5, 0.35, 0.1, '#cdbd9a', { grow: 1.6, op: 0.5 });
@@ -213,6 +275,8 @@ function onHit(h) {
 let shake = 0, prevFire = false;
 function simStep(h) {
   if (mode !== 'play') { input.consumeTap(); return; }      // taps made on menus must not fire a shot when play starts
+  if (run.state === 'over') { input.consumeTap(); run.overT += h; return; }
+  run.time += h;
   const v = player.v; stepVelocity(v, snap.move, P, h);
   const sp = Math.hypot(v.x, v.y);
   if (snap.move.mag > 0.4 && sp > 3 && (v.x * snap.move.x + v.y * snap.move.y) / (sp * snap.move.mag) < -0.3) { player.skidT -= h; if (player.skidT <= 0) { player.skidT = 0.05; fx.dust(player.x, player.y, v.x / sp, v.y / sp, 0.9); } }
@@ -220,7 +284,7 @@ function simStep(h) {
   const kd = Math.exp(-9 * h); player.kb.x *= kd; player.kb.y *= kd;
   const rad = heroes[selected].radius;
   const impact = resolveWorld(player, v, rad, arena.world);
-  for (const t of targets) if (t.alive) circleVsCircle(player, v, rad, t);               // dummies are solid
+  for (const t of targets) if (t.alive && t.kind !== 'critter') circleVsCircle(player, v, rad, t);               // dummies are solid; critters crowd round instead (they keep out of the hero themselves)
   if (smart()) haptics.bump(impact);
   if (impact > 2.5 && player.impact <= 0) { player.impact = 0.15; fx.dust(player.x, player.y, -v.x, -v.y, Math.min(1, impact / 7)); shake = Math.max(shake, Math.min(0.25, impact * 0.025)); }
   player.impact -= h; player.vx = v.x + player.kb.x; player.vy = v.y + player.kb.y; player.speed = Math.hypot(player.vx, player.vy);
@@ -245,6 +309,25 @@ function simStep(h) {
   }
   input.consumeTap();                                        // this step has now seen any tap; fire falls back to the real held state
   pellets.step(h, arena.world, targets, onHit);
+  if (run.mode === 'run') {                                  // waves, critters, hearts
+    health.update(h); score.update(h);
+    const ctx = { player: { x: player.x, y: player.y, r: rad }, world: arena.world, others: critters };
+    for (const c of critters) if (c.step(h, ctx) === 'attack' && run.state === 'playing') hurtPlayer(c);
+    if (run.state === 'playing') {
+      const live = critters.reduce((n, c) => n + (c.state === 'dead' ? 0 : 1), 0);
+      for (const e of director.step(h, live)) {
+        if (e.type === 'wave') { banner('Wave ' + e.n, e.total + ' critters incoming'); audio.sfx.wave(); }
+        else if (e.type === 'spawn') spawnCritter(e.tier);
+        else if (e.type === 'clear') {
+          const bonus = 50 * e.n; score.state.points += bonus; let sub = '+' + bonus + ' bonus';
+          if (e.n % 3 === 0 && health.state.hp < health.state.max) { health.heal(1); sub += ' · +1 heart'; }
+          banner('Wave ' + e.n + ' cleared', sub); audio.sfx.clear();
+        }
+      }
+    }
+    for (let i = critters.length - 1; i >= 0; i--) { const c = critters[i]; if (c.state === 'dead' && clock >= (c.goneAt ?? 0)) { views.get(c)?.dispose(); views.delete(c); critters.splice(i, 1); } }
+    syncTargets();
+  }
   for (const t of targets) {
     if (t.update(h) === 'respawned') { views.get(t).respawn(); fx.ring(t.x, t.y, 1.8, '#fff6e8', 0.4); }
     if (t.sndT > 0) t.sndT -= h;
@@ -289,7 +372,9 @@ function setMode(m) {
   mode = m; updateModeButton();
   arena.setVisible(m === 'play'); showGroup.visible = m === 'compare'; aimGroup.visible = cross.visible = m === 'play'; tracer.visible = m === 'play';
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
-  if (m === 'play') { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); }
+  if (m === 'play') { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); startRun(); }
+  if (m === 'compare') { clearCritters(); run.state = 'idle'; $('#over').classList.remove('show'); setDummies(true); }
+  document.body.classList.toggle('in-run', m === 'play');
   heroes.forEach((h, k) => { if (m === 'compare') h.root.position.set(SHOW.x + (k - 1) * 4.6, 0, SHOW.z); });
   if (m === 'compare') $('#panel').classList.add('collapsed');            // the tuning panel only opens when asked for
   $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = m === 'play' ? 'flex' : 'none';
@@ -301,11 +386,14 @@ function updateHint() {
     ? '<b>1</b><b>2</b><b>3</b> choose a design, <b>Enter</b> or the Play button to try it. Each one walks, strafes, idles and reloads so you can judge it.<br>Controller: <b>D-pad</b> / <b>LB</b><b>RB</b> choose, <b>A</b> plays.'
     : '<b>WASD</b> move, mouse aims, <b>click</b> fires, <b>R</b> reloads, <b>C</b> compare, <b>1</b><b>2</b><b>3</b> switch design. The training range is in the north-west corner.<br>Controller: sticks move and aim, <b>RT</b> fires, <b>X</b> reloads, <b>B</b> back to the designs.';
 }
+$('#bPractice').onclick = () => { run.mode = run.mode === 'run' ? 'practice' : 'run'; if (mode === 'play') startRun(); else { $('#bPractice').textContent = run.mode === 'run' ? 'Practice range' : 'Back to survival'; } };
+$('#bRetry').onclick = () => { if (run.overT > 0.4) startRun(); };
 $('#bMode').onclick = () => setMode(mode === 'compare' ? 'play' : 'compare');
 const setupUp = () => !$('#focus').classList.contains('off');
 addEventListener('keydown', e => {
   if (e.repeat) return; audio.unlock();
   if (setupUp()) { if (e.code === 'Enter' && !e.target.closest?.('button,input,select,summary')) startFocus(); return; }    // the setup screen is left on purpose: Start, A, or Enter
+  if (mode === 'play' && run.state === 'over' && e.code === 'Enter' && run.overT > 0.8) { startRun(); return; }
   if (e.code === 'Digit1') choose(0); else if (e.code === 'Digit2') choose(1); else if (e.code === 'Digit3') choose(2);
   else if (e.code === 'KeyC') setMode(mode === 'compare' ? 'play' : 'compare');
   else if (e.code === 'Enter' && mode === 'compare') setMode('play');
@@ -317,7 +405,9 @@ $('#bPad').onclick = () => { $('#focus').classList.remove('off'); };           /
 // controller menus: one action per button press (see src/input/menu.js)
 const nav = createMenuNav();
 function menuStep() {
-  const cmds = menuCommands(nav.update(snap.pad), { overlayUp: setupUp(), mode, selected, count: heroes.length });
+  const acts = nav.update(snap.pad);
+  if (mode === 'play' && run.state === 'over' && run.overT > 0.8 && acts.includes('confirm')) startRun();
+  const cmds = menuCommands(acts, { overlayUp: setupUp(), mode, selected, count: heroes.length });
   for (const c of cmds) {
     if (c.type === 'start') startFocus();
     else if (c.type === 'choose') choose(c.index);
@@ -368,7 +458,7 @@ $('#bReset').onclick = () => tuning.reset(d => d.page !== 'lab');       // only 
 function resetRange() {
   pellets.clear(); pauseT = 0;
   arena.clearMarks();
-  for (const t of targets) { t.hp = t.maxHp; t.alive = true; t.deadFor = 0; t.dmgAcc = 0; t.dmgT = 0; t.dmgKill = false; t.sndT = 0; views.get(t).respawn(); }
+  for (const t of dummies) { t.hp = t.maxHp; t.alive = run.mode === 'practice' || mode === 'compare'; t.deadFor = 0; t.dmgAcc = 0; t.dmgT = 0; t.dmgKill = false; t.sndT = 0; views.get(t).respawn(); }
   stats.shots = stats.pellets = stats.hits = stats.damage = stats.kills = 0; stats.recent.clear(); stats.last = null;
   updateDiag();
 }
@@ -468,10 +558,35 @@ function frame(now) {
     updatePelletVisuals();
     updateAmmoHud();
   }
-  for (const t of targets) views.get(t).update(dtv, clock);
+  for (const t of dummies) views.get(t).update(dtv, clock);
+  for (const c of critters) views.get(c).update(dtv, clock);
+  if (mode === 'play') updateHud();
   fx.update(dt); updateCamera(Math.max(realDt, 1e-4)); stage.render();
   if ((now / 100 | 0) !== ((now - raw) / 100 | 0)) updateDiag();
   requestAnimationFrame(frame);
+}
+const HEART = '<svg viewBox="0 0 24 22" width="26" height="24"><path d="M12 21C5 15 1 11.5 1 7a5.5 5.5 0 0 1 11-1.2A5.5 5.5 0 0 1 23 7c0 4.500-4 8-11 14z"/></svg>';
+const arrowEls = Array.from({ length: 14 }, () => { const a = document.createElement('i'); $('#arrows').appendChild(a); return a; });
+const _pv = new THREE.Vector3();
+function updateHud() {
+  const inRun = run.mode === 'run';
+  $('#hud').style.display = inRun ? 'flex' : 'none'; $('#arrows').style.display = inRun && run.state === 'playing' ? 'block' : 'none';
+  if (!inRun) { heroes[selected].root.visible = true; return; }
+  const hp = health.state.hp; if (hp !== run.lastHp) { run.lastHp = hp; $('#hearts').innerHTML = Array.from({ length: health.state.max }, (_, i) => `<span class="heart${i < hp ? '' : ' off'}">${HEART}</span>`).join(''); }
+  const pts = score.state.points; if (pts !== run.lastPts) { run.lastPts = pts; $('#scoreV').textContent = pts.toLocaleString(); }
+  const combo = score.state.chain >= 2 ? `x${score.mult} · ${score.state.chain} chain` : ''; if (combo !== run.lastCombo) { run.lastCombo = combo; $('#comboV').textContent = combo; }
+  const left = critters.reduce((n, c) => n + (c.state === 'dead' ? 0 : 1), 0) + director.state.queue.length, w = director.state.wave;
+  const wt = w ? `Wave ${w} · ${left} left` : 'Get ready'; if (wt !== run.lastWave) { run.lastWave = wt; $('#waveV').textContent = wt; }
+  heroes[selected].root.visible = !(health.invulnerable && run.state === 'playing' && Math.floor(clock * 14) % 2 === 0);      // the hero flickers while it cannot be hurt
+  // arrows at the screen edge point to critters you cannot see yet, nearest first
+  const W = innerWidth, H = innerHeight, off = [];
+  for (const c of critters) { if (c.state === 'dead') continue; _pv.set(c.x, 0.6, c.y).project(stage.camera); const sx = (_pv.x * 0.5 + 0.5) * W, sy = (-_pv.y * 0.5 + 0.5) * H; if (_pv.z > 1 || sx < -10 || sx > W + 10 || sy < -10 || sy > H + 10) off.push({ c, d: Math.hypot(c.x - player.x, c.y - player.y), sx: _pv.z > 1 ? W - sx : sx, sy: _pv.z > 1 ? H - sy : sy }); }
+  off.sort((a, b) => a.d - b.d);
+  arrowEls.forEach((el, i) => {
+    const o = off[i]; if (!o) { el.style.display = 'none'; return; }
+    const cx = W / 2, cy = H / 2, dx = o.sx - cx, dy = o.sy - cy, k = Math.min((W / 2 - 26) / Math.abs(dx || 1e-6), (H / 2 - 26) / Math.abs(dy || 1e-6));
+    el.style.display = 'block'; el.style.transform = `translate(${cx + dx * k}px,${cy + dy * k}px) rotate(${Math.atan2(dy, dx)}rad)`; el.style.opacity = o.c.state === 'chase' ? String(Math.max(0.35, 1 - o.d / 40)) : '0.35'; el.style.background = PALETTE[o.c.tier].body;
+  });
 }
 function updatePelletVisuals() {
   // pellets: ball + trail. Colour cools with distance flown (hot = near the muzzle).
@@ -502,4 +617,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };
+window.__hero = { updateHud, run, health, score, director, critters, startRun, resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };

@@ -132,6 +132,9 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
     return false;
   }
   const OFF = { effect: 'off' };
+  // One send path for triggers and motors, so neither can overwrite the other's pending change. Stamped at send START so a burst in one tick is coalesced.
+  const flush = () => { st.timer = null; const w = st.pending; st.pending = null; if (!w) return; st.last = w; st.lastSent = now(); raw(w.right, w.left); };
+  const queue = () => { const wait = Math.max(0, 16 - (now() - st.lastSent)); if (wait === 0) { if (st.timer) { clearTimeout(st.timer); st.timer = null; } flush(); } else if (!st.timer) st.timer = setTimeout(flush, wait); };
 
   const api = {
     supported, state: st,
@@ -164,10 +167,7 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
       if (!st.device || st.dead) return;
       const want = { right: right === undefined ? st.last.right : right, left: left === undefined ? st.last.left : left };
       if (same(want, st.last) && !st.pending) return;
-      st.pending = want;
-      const wait = Math.max(0, 16 - (now() - st.lastSent));
-      const go = () => { st.timer = null; const w = st.pending; st.pending = null; if (!w) return; st.last = w; st.lastSent = now(); raw(w.right, w.left); };   // stamped at send START, so a burst in one tick is coalesced
-      if (wait === 0) go(); else if (!st.timer) st.timer = setTimeout(go, wait);
+      st.pending = want; queue();
     },
     /** Rumble the motors over the same connection (reliable over Bluetooth, where the browser's own rumble often is not).
      *  @returns true when the command was taken; false means "use the browser's rumble instead". The motors stop by themselves after `ms`. */
@@ -175,10 +175,7 @@ export function createDualSense({ hid = (typeof navigator !== 'undefined' ? navi
       if (!st.device || st.dead) return false;
       st.motorUsed = true; st.motor = { strong, weak }; if (st.motorTimer) clearTimeout(st.motorTimer);
       st.motorTimer = (strong > 0 || weak > 0) ? setTimeout(() => api.motors(0, 0), ms) : null;
-      st.pending = { right: st.last.right, left: st.last.left };
-      const wait = Math.max(0, 16 - (now() - st.lastSent));
-      const go = () => { st.timer = null; const w = st.pending; st.pending = null; if (!w) return; st.lastSent = now(); raw(w.right, w.left); };
-      if (wait === 0) { if (st.timer) { clearTimeout(st.timer); st.timer = null; } go(); } else if (!st.timer) st.timer = setTimeout(go, wait);
+      st.pending = st.pending || { right: st.last.right, left: st.last.left }; queue();
       return true;
     },
     /** Put both triggers back to normal (menus, leaving the page). */

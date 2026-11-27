@@ -78,3 +78,26 @@ body.mode-compare #hint{top:max(58px,calc(env(safe-area-inset-top,0px) + 50px));
 
 #panel .hint{font-size:12px;line-height:1.45;color:var(--dim);margin:6px 0}
 #panel select{font:inherit;font-size:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:4px 6px}
+
+/* ---- the run: hearts, score, wave banner, edge arrows, game over ---- */
+#hud{position:fixed;left:50%;top:max(12px,env(safe-area-inset-top,0px));transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:4px;pointer-events:none;z-index:4}
+body:not(.in-run) #hud,body:not(.in-run) #arrows,body:not(.in-run) #banner{display:none!important}
+#hearts{display:flex;gap:4px} .heart svg{display:block;fill:#ff5d7a;stroke:#2a0f1d;stroke-width:1.5;filter:drop-shadow(0 2px 0 rgba(0,0,0,.35))} .heart.off svg{fill:#2a3a3e;stroke:#142024}
+#scoreBox{display:flex;gap:10px;align-items:baseline;font-variant-numeric:tabular-nums} #scoreV{font-size:26px;text-shadow:0 2px 0 rgba(0,0,0,.45)} #comboV{font-size:13px;color:var(--gold);font-weight:600}
+#waveV{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);text-shadow:0 1px 0 rgba(0,0,0,.5)}
+#banner{position:fixed;left:50%;top:30%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0;z-index:4}
+#banner b{display:block;font-size:46px;letter-spacing:.02em;text-shadow:0 4px 0 rgba(0,0,0,.45)} #banner small{display:block;font-size:15px;color:var(--gold);margin-top:2px;text-shadow:0 2px 0 rgba(0,0,0,.5)}
+#banner.show{animation:banner 2.2s ease-out}
+@keyframes banner{0%{opacity:0;transform:translate(-50%,-40%) scale(.8)}12%{opacity:1;transform:translate(-50%,-50%) scale(1.05)}20%{transform:translate(-50%,-50%) scale(1)}78%{opacity:1}100%{opacity:0}}
+#arrows{position:fixed;inset:0;pointer-events:none;display:none;z-index:3}
+#arrows i{position:absolute;left:0;top:0;width:0;height:0;display:none;margin:-9px 0 0 -9px;width:18px;height:18px;clip-path:polygon(0 0,100% 50%,0 100%,22% 50%);filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
+#vig.hurt{box-shadow:inset 0 0 160px 50px rgba(255,40,70,.5)}
+#vig{transition:box-shadow .25s}
+#over{position:fixed;inset:0;display:none;place-items:center;background:rgba(8,12,18,.6);z-index:6}
+#over.show{display:grid}
+#over .box{background:var(--panel2);border:1px solid var(--line);border-radius:18px;padding:24px 34px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.5);max-width:92vw}
+#over h2{margin:0 0 8px;font-size:34px;letter-spacing:0;text-transform:none;color:var(--ink)} #over p{margin:4px 0;font-size:15px} #over small{display:block;margin-top:10px;color:var(--dim)} #over b{background:var(--ink);color:#122;border-radius:5px;padding:0 6px;font-size:11px}
+body.practice #hud{display:none}
+@media (max-width:640px){ #banner b{font-size:32px} #scoreV{font-size:20px} }
+body.in-run #chipSrc,body.in-run #top h1{display:none}
+body.in-run #hint{display:none}

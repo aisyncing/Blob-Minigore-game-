@@ -34,5 +34,9 @@ export const sfx = {
   close() { tone(520, 260, 0.07, 0.2, 'square', 0.05); burst(0.05, 0.16, 2200, 800, 1, 0.05); },
   hit(k = 1) { tone(220 * (0.8 + Math.random() * 0.3), 90, 0.07, 0.18 * k, 'sine'); burst(0.05, 0.1 * k, 2400, 700, 1.2); },
   pop() { tone(420, 1000, 0.14, 0.22, 'triangle'); burst(0.12, 0.25, 4000, 500); tone(800, 1500, 0.08, 0.12, 'triangle', 0.06); },
+  hurt() { tone(160, 50, 0.25, 0.5, 'sawtooth'); burst(0.2, 0.35, 1800, 200, 0.8); tone(90, 40, 0.3, 0.4); },
+  wave() { tone(330, 330, 0.12, 0.16, 'triangle'); tone(440, 440, 0.12, 0.16, 'triangle', 0.13); tone(660, 660, 0.22, 0.2, 'triangle', 0.26); },
+  clear() { tone(520, 780, 0.16, 0.18, 'triangle'); tone(780, 1170, 0.22, 0.18, 'triangle', 0.14); },
+  over() { tone(300, 70, 0.9, 0.3, 'sawtooth'); tone(150, 40, 1.0, 0.3, 'sine', 0.1); },
   thunk() { tone(90, 50, 0.06, 0.2); },
 };

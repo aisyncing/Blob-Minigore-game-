@@ -21,12 +21,12 @@ const NOSTEP = () => {};
     await frame(20); assert.equal(await shots(), 1, `${name}: no extra shot from the same tap`);
   }
   console.log('ok finding 4: taps (Space + click; frames with 0, 1, 4, 16 steps)');
-  // hold: existing cadence (2 shots 0.28s apart, then a 0.95s reload, then 2 more)
+  // hold: existing cadence (2 shots 0.28s apart, then a 0.7s reload, then 2 more)
   await reset(); await page.evaluate(() => { dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); });
   const times = await page.evaluate(() => { const H = __hero, out = []; for (let i = 0; i < 240; i++) { if (i % 2 === 0) H.input.sample(performance.now()); const before = H.stats.shots; H.simStep(1 / 120); if (H.stats.shots > before) out.push(+(i / 120).toFixed(2)); } return out; });
   await page.evaluate(() => dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true })));
   console.log('   hold-to-fire shot times (s):', times.join(', '));
-  assert.equal(times.length, 4); assert.ok(Math.abs(times[1] - times[0] - 0.28) < 0.02, 'repeat interval 0.28s'); assert.ok(Math.abs(times[2] - times[1] - 1.23) < 0.05, 'reload gap preserved (cooldown 0.28 + reload 0.95)');
+  assert.equal(times.length, 4); assert.ok(Math.abs(times[1] - times[0] - 0.28) < 0.02, 'repeat interval 0.28s'); assert.ok(Math.abs(times[2] - times[1] - 0.98) < 0.05, 'reload gap preserved (cooldown 0.28 + reload 0.7)');
   console.log('ok finding 4: hold cadence + reload preserved');
   assert.deepEqual(g.errors, []); await g.close();
 }
@@ -35,10 +35,10 @@ const NOSTEP = () => {};
 {
   const g = await openGame(); const { page } = g;
   await g.pad({ axes: [0.08, 0.0, 0, 0] });                       // resting drift 0.08 < default inner deadzone 0.12
-  await page.keyboard.press('Enter'); await page.waitForTimeout(200);
+  await page.keyboard.press('Enter'); await page.waitForTimeout(100); await page.keyboard.press('Enter'); await page.waitForTimeout(200);     // leave the setup screen, then play
   assert.equal(await page.evaluate(() => __hero.state().mode), 'play');
   const x0 = await page.evaluate(() => __hero.player.x);
-  await page.keyboard.down('KeyD'); await page.waitForTimeout(600);
+  await page.keyboard.down('KeyD'); await page.waitForTimeout(1100);
   const r = await page.evaluate(() => ({ x: __hero.player.x, src: __hero.snap.source, mx: __hero.snap.move.x }));
   await page.keyboard.up('KeyD');
   assert.equal(r.src, 'keyboard'); assert.ok(r.mx > 0.99 && r.x - x0 > 1.5, `D moves the hero normally (moved ${(r.x - x0).toFixed(2)})`);
