@@ -1,6 +1,7 @@
 // Pure input maths. No DOM, no Gamepad API, so it can be unit tested in Node.
+import { clamp } from '../engine/math.js';
 
-export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+export { clamp };
 const num = v => (Number.isFinite(v) ? v : 0);
 
 /**

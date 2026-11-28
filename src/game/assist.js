@@ -2,8 +2,8 @@
 //   assist: bend the player's aim toward a target close to their line of fire (never through a wall)
 //   auto:   with no aim input, point at the nearest visible target
 import { hasLineOfSight } from './ballistics.js';
+import { wrapAngle as wrap } from '../engine/math.js';
 
-const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 const clamp01 = v => Math.max(0, Math.min(1, v));
 
 /**
@@ -14,33 +14,41 @@ const clamp01 = v => Math.max(0, Math.min(1, v));
  */
 export function assistAim(origin, dir, targets, world, { mode = 'assist', coneDeg = 8, strength = 0.5, range = 18 } = {}) {
   const has = Math.hypot(dir.x, dir.y) > 1e-6;
-  if (mode === 'manual') return { x: dir.x, y: dir.y, aiming: has, target: null };
-  const visible = [];
+  // nothing to pick: manual aim, or assist with no aim of the player's own to bend
+  if (mode === 'manual' || (!has && mode !== 'auto')) return { x: dir.x, y: dir.y, aiming: has, target: null };
+  // Runs every simulation step against every target. Line of sight (a ray through every wall) is the costly part, so it is only
+  // checked for a target that could actually win; the result is the same as filtering by sight first.
+  if (!has) {                                                       // auto: the nearest target in sight
+    const near = [];
+    for (const t of targets) {
+      if (t.alive === false) continue;
+      const dx = t.x - origin.x, dy = t.y - origin.y, d = Math.hypot(dx, dy);
+      if (d >= 0.01 && d <= range) near.push({ t, d, dx, dy });
+    }
+    near.sort((a, b) => a.d - b.d);
+    for (const n of near) {
+      if (!hasLineOfSight(origin.x, origin.y, n.t.x, n.t.y, world)) continue;
+      const bearing = Math.atan2(n.dx, n.dy);                       // same yaw convention as the hero: atan2(x, y)
+      return { x: Math.sin(bearing), y: Math.cos(bearing), aiming: true, target: n.t };
+    }
+    return { x: dir.x, y: dir.y, aiming: false, target: null };
+  }
+  const yaw = Math.atan2(dir.x, dir.y), cone = coneDeg * Math.PI / 180;
+  let best = null, bestScore = Infinity;
   for (const t of targets) {
     if (t.alive === false) continue;
     const dx = t.x - origin.x, dy = t.y - origin.y, d = Math.hypot(dx, dy);
     if (d < 0.01 || d > range) continue;
-    if (!hasLineOfSight(origin.x, origin.y, t.x, t.y, world)) continue;
-    visible.push({ t, d, bearing: Math.atan2(dx, dy) });          // same yaw convention as the hero: atan2(x, y)
-  }
-  if (mode === 'auto' && !has) {
-    if (!visible.length) return { x: dir.x, y: dir.y, aiming: false, target: null };
-    visible.sort((a, b) => a.d - b.d); const n = visible[0];
-    return { x: Math.sin(n.bearing), y: Math.cos(n.bearing), aiming: true, target: n.t };
-  }
-  if (!has || !visible.length) return { x: dir.x, y: dir.y, aiming: has, target: null };
-  const yaw = Math.atan2(dir.x, dir.y), cone = coneDeg * Math.PI / 180;
-  let best = null, bestScore = Infinity;
-  for (const v of visible) {
-    const diff = Math.abs(wrap(v.bearing - yaw)), allowed = cone + Math.atan2(v.t.r, v.d); // bigger / closer targets are easier to catch
+    const bearing = Math.atan2(dx, dy), diff = Math.abs(wrap(bearing - yaw)), allowed = cone + Math.atan2(t.r, d);   // bigger / closer targets are easier to catch
     if (diff > allowed) continue;
-    const score = diff / allowed + v.d / range * 0.25;
-    if (score < bestScore) { bestScore = score; best = { v, diff, allowed }; }
+    const score = diff / allowed + d / range * 0.25;
+    if (score >= bestScore || !hasLineOfSight(origin.x, origin.y, t.x, t.y, world)) continue;
+    bestScore = score; best = { t, bearing, diff, allowed };
   }
   if (!best) return { x: dir.x, y: dir.y, aiming: true, target: null };
   const pull = clamp01(strength) * Math.sqrt(1 - clamp01(best.diff / best.allowed)); // strongest when already nearly on target
-  const out = yaw + wrap(best.v.bearing - yaw) * pull;
-  return { x: Math.sin(out), y: Math.cos(out), aiming: true, target: best.v.t };
+  const out = yaw + wrap(best.bearing - yaw) * pull;
+  return { x: Math.sin(out), y: Math.cos(out), aiming: true, target: best.t };
 }
 
 /**

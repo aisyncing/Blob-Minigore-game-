@@ -1,7 +1,9 @@
 // Shared three.js setup: renderer, lights, toon material, painted-texture helper.
 import * as THREE from 'three';
 
-export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+import { clamp } from './math.js';
+
+export { clamp };
 export const R2 = (a, b) => a + Math.random() * (b - a);
 
 const ramp = new THREE.DataTexture(new Uint8Array([150, 205, 255]), 3, 1, THREE.RedFormat);

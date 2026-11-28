@@ -2,6 +2,7 @@
 // Three sizes nest like dolls: shoot a big one and it breaks into two mids, each mid into two smalls.
 // A critter implements the same small interface as a training Target (x, y, r, alive, damage()), so pellets and aim help treat it alike.
 import { resolveWorld } from './collide.js';
+import { wrapAngle as wrap } from '../engine/math.js';
 
 export const TIERS = {
   big:   { r: 1.2,  hp: 64, speed: 2.5, score: 30, split: 'mid',   splitN: 2, mass: 3.0 },
@@ -9,8 +10,6 @@ export const TIERS = {
   small: { r: 0.38, hp: 11, speed: 4.7, score: 8,  split: null,    splitN: 0, mass: 0.8 },
 };
 export const ATTACK_COOLDOWN = 0.9, PLAYER_HIT_PAD = 0.15;
-
-const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 
 export class Critter {
   /** warn: seconds the spawn marker shows; rise: seconds it takes to climb out (harmless and untouchable until then). */

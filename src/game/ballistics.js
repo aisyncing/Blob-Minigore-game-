@@ -13,15 +13,24 @@ export function segmentVsCircle(ax, ay, bx, by, c) {
   return t >= 0 && t <= 1 ? t : null;
 }
 
-/** First entry into an axis-aligned box (centre + half extents), or null. Also reports which face was hit. */
+/** First entry into an axis-aligned box (centre + half extents), or null. Also reports which face was hit.
+ *  Slab test, x then y. Runs for every pellet against every wall on every step, so it allocates nothing unless it hits. */
 export function segmentVsBox(ax, ay, bx, by, b) {
   const dx = bx - ax, dy = by - ay;
   let t0 = 0, t1 = 1, nx = 0, ny = 0;
-  for (const [o, d, lo, hi, axis] of [[ax, dx, b.x - b.hw, b.x + b.hw, 0], [ay, dy, b.y - b.hh, b.y + b.hh, 1]]) {
-    if (Math.abs(d) < 1e-12) { if (o < lo || o > hi) return null; continue; }
-    let ta = (lo - o) / d, tb = (hi - o) / d, sign = -Math.sign(d);
-    if (ta > tb) [ta, tb] = [tb, ta];
-    if (ta > t0) { t0 = ta; nx = axis === 0 ? sign : 0; ny = axis === 1 ? sign : 0; }
+  if (Math.abs(dx) < 1e-12) { if (ax < b.x - b.hw || ax > b.x + b.hw) return null; }
+  else {
+    let ta = (b.x - b.hw - ax) / dx, tb = (b.x + b.hw - ax) / dx;
+    if (ta > tb) { const s = ta; ta = tb; tb = s; }
+    if (ta > t0) { t0 = ta; nx = -Math.sign(dx); ny = 0; }
+    t1 = Math.min(t1, tb);
+    if (t0 > t1) return null;
+  }
+  if (Math.abs(dy) < 1e-12) { if (ay < b.y - b.hh || ay > b.y + b.hh) return null; }
+  else {
+    let ta = (b.y - b.hh - ay) / dy, tb = (b.y + b.hh - ay) / dy;
+    if (ta > tb) { const s = ta; ta = tb; tb = s; }
+    if (ta > t0) { t0 = ta; nx = 0; ny = -Math.sign(dy); }
     t1 = Math.min(t1, tb);
     if (t0 > t1) return null;
   }
@@ -30,15 +39,23 @@ export function segmentVsBox(ax, ay, bx, by, b) {
 
 /**
  * Nearest thing along a segment. world = {boxes, circles}, targets = [{x,y,r,alive}].
- * Returns { t, kind: 'wall'|'target', ref, x, y, nx, ny } or null.
+ * Returns { t, kind: 'wall'|'target', ref, x, y, nx, ny } or null. On equal distance the first one checked wins (boxes, circles, targets).
  */
 export function raycast(ax, ay, bx, by, world, targets = []) {
-  let best = null;
-  const take = (t, kind, ref, nx, ny) => { if (!best || t < best.t) best = { t, kind, ref, x: ax + (bx - ax) * t, y: ay + (by - ay) * t, nx, ny }; };
-  for (const b of world.boxes) { const h = segmentVsBox(ax, ay, bx, by, b); if (h) take(h.t, 'wall', b, h.nx, h.ny); }
-  for (const c of world.circles) { const t = segmentVsCircle(ax, ay, bx, by, c); if (t !== null) { const px = ax + (bx - ax) * t - c.x, py = ay + (by - ay) * t - c.y, d = Math.hypot(px, py) || 1; take(t, 'wall', c, px / d, py / d); } }
-  for (const c of targets) { if (c.alive === false) continue; const t = segmentVsCircle(ax, ay, bx, by, c); if (t !== null) { const px = ax + (bx - ax) * t - c.x, py = ay + (by - ay) * t - c.y, d = Math.hypot(px, py) || 1; take(t, 'target', c, px / d, py / d); } }
-  return best;
+  const dx = bx - ax, dy = by - ay;
+  let bt = Infinity, kind = null, ref = null, nx = 0, ny = 0;
+  for (const b of world.boxes) { const h = segmentVsBox(ax, ay, bx, by, b); if (h && h.t < bt) { bt = h.t; kind = 'wall'; ref = b; nx = h.nx; ny = h.ny; } }
+  for (let pass = 0; pass < 2; pass++) {
+    const list = pass === 0 ? world.circles : targets;
+    for (const c of list) {
+      if (pass === 1 && c.alive === false) continue;
+      const t = segmentVsCircle(ax, ay, bx, by, c);
+      if (t === null || t >= bt) continue;
+      const px = ax + dx * t - c.x, py = ay + dy * t - c.y, d = Math.hypot(px, py) || 1;
+      bt = t; kind = pass === 0 ? 'wall' : 'target'; ref = c; nx = px / d; ny = py / d;
+    }
+  }
+  return kind ? { t: bt, kind, ref, x: ax + dx * bt, y: ay + dy * bt, nx, ny } : null;
 }
 
 /** True when nothing static (walls, props) lies between two points. */

@@ -54,8 +54,10 @@ label.chk{display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px;
 #arena{cursor:crosshair;touch-action:none}
 </style>
 <div id="app"></div>
-<script type="module">// src/input/process.js
-var clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+<script type="module">// src/engine/math.js
+var clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// src/input/process.js
 var num = (v) => Number.isFinite(v) ? v : 0;
 function shapeStick(x, y, { inner = 0.15, outer = 0.95, curve = 1 } = {}) {
   x = num(x);

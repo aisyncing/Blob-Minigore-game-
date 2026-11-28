@@ -10,13 +10,12 @@ import { toon, paintCanvas, facet, R2 } from '../engine/stage.js';
 import { BOUNDS, SPAWN, LAYOUT, buildWorld } from './layout.js';
 
 export { SPAWN };
-export const ARENA_BOUNDS = BOUNDS;
 
 export function createArena(stage) {
   const { scene } = stage;
   const group = new THREE.Group(); scene.add(group);
   const world = buildWorld();
-  const B = ARENA_BOUNDS, W = B.maxX - B.minX, H = B.maxY - B.minY;
+  const B = BOUNDS, W = B.maxX - B.minX, H = B.maxY - B.minY;
 
   /* ---------- textures ---------- */
   const grass = paintCanvas(512, 512, (g, w, h) => {

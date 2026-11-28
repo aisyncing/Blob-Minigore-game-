@@ -23,7 +23,7 @@ export function damageAt(dist, { damage, range, falloffStart, minDamage }) {
 }
 
 export class PelletSim {
-  constructor() { this.pellets = []; }
+  constructor() { this.pellets = []; this.spare = []; }
   /** Fire one pellet. dir must be a unit vector. */
   spawn(x, y, dx, dy, opts) { this.pellets.push({ x, y, dx, dy, speed: opts.speed, traveled: 0, opts, shot: opts.shot ?? 0 }); }
   clear() { this.pellets.length = 0; }
@@ -32,7 +32,7 @@ export class PelletSim {
    * onExpire(p) when a pellet runs out of range. Pellets are swept along their whole step, so they cannot tunnel.
    */
   step(dt, world, targets, onHit, onExpire) {
-    const live = [];
+    const live = this.spare; live.length = 0;                  // two arrays take turns, so a step allocates no list
     for (const p of this.pellets) {
       const remaining = p.opts.range - p.traveled, len = Math.min(p.speed * dt, remaining);
       const bx = p.x + p.dx * len, by = p.y + p.dy * len;
@@ -46,6 +46,6 @@ export class PelletSim {
       if (p.traveled >= p.opts.range - 1e-9) { onExpire?.(p); continue; }
       live.push(p);
     }
-    this.pellets = live;
+    this.spare = this.pellets; this.pellets = live;
   }
 }

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { angDiff, smooth } from '../game/movement.js';
 import { buildShell } from './gun.js';
 import { cloneRig } from './rigAsset.js';
-import { reloadPose, crossed, smooth as ease } from './reload.js';
+import { reloadPose, crossed } from './reload.js';
 import { toon, clamp, R2 } from '../engine/stage.js';
 
 const _v = new THREE.Vector3();

@@ -2,11 +2,7 @@
 // button eyes, and a health bar. Reacts to hits procedurally: squash, tilt away from the shot, white flash.
 import * as THREE from 'three';
 import { toon, paintCanvas, R2 } from '../engine/stage.js';
-import { stepSpring } from '../engine/spring.js';
-
-const _s = { x: 0, v: 0 };
-/** Advance o[pos] / o[vel] as a damped spring toward 0 (or toward `target`), stable at any frame rate. */
-const spring = (o, pos, vel, k, c, dt, target = 0) => { _s.x = o[pos]; _s.v = o[vel]; stepSpring(_s, k, c, target, dt); o[pos] = _s.x; o[vel] = _s.v; };
+import { springProp as spring } from '../engine/spring.js';
 
 const burlap = paintCanvas(256, 256, (g, w, h) => {
   g.fillStyle = '#c9a66b'; g.fillRect(0, 0, w, h);
@@ -52,7 +48,7 @@ export class DummyView {
     const tg = this.t; this.group.visible = tg.alive || this.group.visible && false; 
     if (!tg.alive) return;
     this.group.position.set(tg.x, 0, tg.y);
-    for (const ax of ['x', 'z']) spring(this.tilt, ax, 'v' + ax, 140, 7, dt);
+    spring(this.tilt, 'x', 'vx', 140, 7, dt); spring(this.tilt, 'z', 'vz', 140, 7, dt);
     spring(this, 'sq', 'sqv', 200, 9, dt);
     // spawn pop with a little overshoot; the size is clamped so a respawn can never flash huge or vanish
     spring(this, 'pop', 'popV', 260, 14, dt, 1); this.pop = Math.min(1.35, Math.max(0, this.pop));
@@ -62,6 +58,8 @@ export class DummyView {
     this.flash = Math.max(0, this.flash - dt * 7); this.mat.emissiveIntensity = this.flash * 0.9;
     this.barT = Math.max(0, this.barT - dt); const f = tg.hp / tg.maxHp;
     this.bar.visible = this.barT > 0 || f < 1; this.bar.quaternion.copy(this.camera.quaternion);
-    this.fill.scale.x = Math.max(0.001, f); this.fill.position.x = -(1 - f) * 0.5; this.fill.material.color.set(f > 0.5 ? '#7be08a' : f > 0.25 ? '#ffd23f' : '#ff6b6b');
+    this.fill.scale.x = Math.max(0.001, f); this.fill.position.x = -(1 - f) * 0.5;
+    const band = f > 0.5 ? '#7be08a' : f > 0.25 ? '#ffd23f' : '#ff6b6b';
+    if (band !== this.band) { this.band = band; this.fill.material.color.set(band); }      // only when it changes, not every frame
   }
 }

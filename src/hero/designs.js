@@ -65,7 +65,7 @@ function gumdrop() {
   hat.rotation.x = 0.1;
   const feet = [-1, 1].map(s => { const f = cast(new THREE.Mesh(new THREE.SphereGeometry(0.19, 10, 8), toon(shade(base, -0.12)))); f.scale.set(1, 0.7, 1.3); f.position.set(s * 0.3, 0.12, 0.1); return f; });
   const sx = new Spring(120, 7), sz = new Spring(120, 7);
-  return { name: 'Gumdrop', blurb: 'Melty pink dome with an explorer hat. Soft, wobbly, easy to read from above.', base, armColor: shade(base, -0.1), trim: '#d9a441',
+  return { name: 'Gumdrop', base, armColor: shade(base, -0.1), trim: '#d9a441',
     body, blink: e.blink, look: e.look, feet, footX: 0.3, shoulder: { x: 0.6, y: 0.8 }, gunMount: { x: 0, y: 0.72, z: 0.34 }, radius: 0.66, belt: { r: 0.7, y: 0.5 }, accessory: hat,
     secondary(dt, t, c) { hat.rotation.z = sx.step(-c.lx * 0.03, dt); hat.rotation.x = 0.1 + sz.step(c.lz * 0.03, dt); } };
 }
@@ -86,7 +86,7 @@ function sprout() {
   const boot = toon('#7a4a26');
   const feet = [-1, 1].map(s => { const f = cast(new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.3, 0.46, 3, 0.1), boot)); f.position.set(s * 0.24, 0.15, 0.04); return f; });
   const sa = new Spring(90, 3.2), sb = new Spring(90, 3.2);
-  return { name: 'Sprout', blurb: 'Mint bean with boots, a neckerchief and a leaf that flutters when it runs.', base, armColor: shade(base, -0.12), trim: '#e0c36a',
+  return { name: 'Sprout', base, armColor: shade(base, -0.12), trim: '#e0c36a',
     body, blink: e.blink, look: e.look, feet, footX: 0.24, shoulder: { x: 0.5, y: 0.98 }, gunMount: { x: 0, y: 0.78, z: 0.3 }, radius: 0.56, belt: { r: 0.6, y: 0.55 }, accessory: sprig,
     secondary(dt, t, c) { sprig.rotation.z = sa.step(-c.lx * 0.045 + Math.sin(t * 3) * 0.05, dt); sprig.rotation.x = sb.step(c.lz * 0.045, dt); leaves[0].rotation.z = -0.45 + Math.sin(t * 4.2) * 0.08; leaves[1].rotation.z = 0.45 - Math.sin(t * 4.2 + 1) * 0.08; } };
 }
@@ -112,7 +112,7 @@ function marshmallow() {
   const feet = [-1, 1].map(s => { const g = new THREE.Group(); const leg = cast(new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, 0.2, 8), toon('#5f7a9a'))); leg.position.y = 0.06; g.add(leg);
     const sole = cast(new THREE.Mesh(new RoundedBoxGeometry(0.3, 0.14, 0.4, 3, 0.05), toon('#5f7a9a'))); sole.position.set(0, -0.02, 0.05); g.add(sole); g.position.set(s * 0.27, 0.14, 0.05); return g; });
   const sa = new Spring(70, 2.2), sb = new Spring(70, 2.2);
-  return { name: 'Marshmallow', blurb: 'Chunky cream cube with goggles and a bobbing antenna. The most Minigore-blocky of the three.', base, armColor: '#e8cfa6', trim: '#d9463e',
+  return { name: 'Marshmallow', base, armColor: '#e8cfa6', trim: '#d9463e',
     body, blink: e.blink, look: e.look, feet, footX: 0.27, shoulder: { x: 0.62, y: 0.92 }, gunMount: { x: 0, y: 0.7, z: 0.4 }, radius: 0.64, belt: { r: 0.7, y: 0.5 }, accessory: ant,
     secondary(dt, t, c) { ant.rotation.z = sa.step(-c.lx * 0.07, dt); ant.rotation.x = sb.step(c.lz * 0.07, dt); halo.scale.setScalar(1 + Math.sin(t * 5) * 0.12); } };
 }

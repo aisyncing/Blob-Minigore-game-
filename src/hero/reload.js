@@ -25,7 +25,7 @@ export function reloadPose(p) {
   if (p < REL.open) { barrelOpen = smooth(seg(p, 0, REL.open)); hand = 'forend'; t = 0; }
   else if (p < REL.grab) { barrelOpen = 1; hand = 'toBelt'; t = smooth(seg(p, REL.open, REL.grab)); }
   else if (p < REL.insert) { barrelOpen = 1; hand = 'toBreech'; t = smooth(seg(p, REL.grab, REL.insert)); }
-  else if (p < REL.close) { const k = seg(p, REL.insert, REL.close); barrelOpen = 1 - smooth(k) + Math.sin(k * Math.PI) * 0.0; hand = 'liftAway'; t = smooth(k); }
+  else if (p < REL.close) { const k = seg(p, REL.insert, REL.close); barrelOpen = 1 - smooth(k); hand = 'liftAway'; t = smooth(k); }
   else { barrelOpen = 0; hand = 'toForend'; t = smooth(seg(p, REL.close, REL.back)); }
   return { barrelOpen, hand, t, shellsInHand: p >= REL.grab && p < REL.insert, beltTaken: p >= REL.grab && p < REL.refill };
 }

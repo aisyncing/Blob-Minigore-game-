@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toon } from '../engine/stage.js';
-import { stepSpring } from '../engine/spring.js';
+import { springProp as spring } from '../engine/spring.js';
 
 // The brown Furry from the Minigore 2 character sheet: shaggy layered fur, pointed ears, a cream muzzle, black glossy eyes, angry brows and a
 // wide mouth full of jagged teeth. Three sizes share the design: Mini (round, low), Furry (upright, hunched), Giant (massive, long arms).
@@ -13,9 +13,6 @@ export const PALETTE = {
   mid:   { body: FUR.mid, tuft: FUR.tip },
   small: { body: FUR.mid, tuft: FUR.tip },
 };
-
-const _s = { x: 0, v: 0 };
-const spring = (o, pos, vel, k, c, dt, target = 0) => { _s.x = o[pos]; _s.v = o[vel]; stepSpring(_s, k, c, target, dt); o[pos] = _s.x; o[vel] = _s.v; };
 
 const shared = {};
 const rng = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
@@ -113,7 +110,7 @@ export class CritterView {
     }
     this.mark.visible = c.state === 'rise'; this.rig.visible = this.shadow.visible = c.state !== 'dead';
     if (c.state === 'rise') { const k = Math.min(1, 1 - c.t / Math.max(0.01, c.riseT)); this.mark.scale.setScalar(r * (1.5 + k * 0.8)); this.markMat.opacity = 0.8 * (1 - k); this.rig.scale.setScalar(r * Math.max(0.05, k)); this.rig.position.y = -(1 - k) * r * 1.2; this.shadow.scale.setScalar(r * 1.15 * k); return; }
-    for (const ax of ['x', 'z']) spring(this.tilt, ax, 'v' + ax, 150, 8, dt);
+    spring(this.tilt, 'x', 'vx', 150, 8, dt); spring(this.tilt, 'z', 'vz', 150, 8, dt);
     spring(this, 'sq', 'sqv', 210, 9, dt);
     this.phase += dt * (6 + c.speed * 1.6); const hop = Math.abs(Math.sin(this.phase)), land = 1 - hop;
     this.rig.position.y = hop * r * (c.tier === 'big' ? 0.12 : c.tier === 'mid' ? 0.2 : 0.3);

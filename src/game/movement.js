@@ -9,6 +9,7 @@
 // 90 degree turn feels between a plain acceleration and a full reversal. In a full reversal
 // turnAccel only governs the first half (killing the old speed); after the velocity crosses
 // zero it is aligned with the target again, so accel takes over.
+import { wrapAngle } from '../engine/math.js';
 
 export const MOVE_DEFAULTS = { maxSpeed: 7.5, accel: 70, brake: 60, turnAccel: 110 };
 
@@ -40,6 +41,7 @@ export function moveStats(params) {
   return { timeToTop: p.maxSpeed / p.accel, stopTime: p.maxSpeed / p.brake, stopDistance: (p.maxSpeed * p.maxSpeed) / (2 * p.brake), reverseTime: p.maxSpeed / p.turnAccel + p.maxSpeed / p.accel };  // turnAccel undoes the old direction; once velocity crosses zero, accel builds the new one
 }
 
-export const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
+/** Shortest signed turn from angle a to angle b. */
+export const angDiff = (a, b) => wrapAngle(b - a);
 /** Frame-rate independent exponential smoothing factor. */
 export const smooth = (rate, dt) => 1 - Math.exp(-rate * dt);
