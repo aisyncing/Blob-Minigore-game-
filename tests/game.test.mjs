@@ -20,11 +20,12 @@ test('a chasing critter closes in on the player and bites at most once per coold
   for (let i = 0; i < 600; i++) { if (c.step(0.01, { player, world }) === 'attack') bites++; t += 0.01; }
   assert.ok(bites >= 1 && bites <= Math.ceil(t / 0.9) + 1, `bites ${bites}`);
 });
-test('shooting a big critter kills it and leaves two mids, which leave two smalls each; smalls leave nothing', () => {
+test('shooting a big critter kills it and leaves two mids; mids and smalls leave nothing', () => {
   const big = new Critter({ tier: 'big', x: 0, y: 0, warn: 0, rise: 0 });
   assert.deepEqual(big.damage(TIERS.big.hp - 1), { killed: false, dealt: TIERS.big.hp - 1 }); assert.equal(big.damage(5).killed, true); assert.equal(big.alive, false);
   const mids = big.splits(); assert.equal(mids.length, 2); assert.ok(mids.every(m => m.tier === 'mid' && m.state === 'rise'), 'they climb out quickly');
-  assert.equal(mids[0].splits().length, 2); assert.deepEqual(mids[0].splits()[0].splits(), []);
+  assert.deepEqual(mids[0].splits(), [], 'a mid dies for good'); assert.deepEqual(new Critter({ tier: 'small', x: 0, y: 0, warn: 0, rise: 0 }).splits(), []);
+  assert.equal(TIERS.mid.split, null); assert.equal(TIERS.small.split, null); assert.equal(TIERS.big.split, 'mid');
 });
 test('knockback pushes along the shot and lighter critters fly further', () => {
   const a = new Critter({ tier: 'big', x: 0, y: 0, warn: 0, rise: 0 }), b = new Critter({ tier: 'small', x: 0, y: 0, warn: 0, rise: 0 });
