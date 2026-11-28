@@ -168,6 +168,12 @@ function dummyDied(tg) {
   for (let i = 0; i < 22; i++) { const a = Math.random() * 6.28, sp = R2(2, 6); fx.emit(tg.x, 1, tg.y, Math.cos(a) * sp, R2(2, 6), Math.sin(a) * sp, R2(0.5, 0.9), R2(0.08, 0.16), ['#e8c85a', '#c9a66b', '#fff6e8', '#e85d5d'][i & 3], { g: 14, op: 1 }); }
   fx.ring(tg.x, tg.y, 2.6, '#ffd23f', 0.5);
 }
+/** A critter's strike (landed or dodged): the giant's slam rings the ground and thumps the camera (less the further away it is); smaller ones kick up dust. */
+function strikeFx(c) {
+  const dx = Math.sin(c.heading), dy = Math.cos(c.heading), hx = c.x + dx * c.r * 1.15, hy = c.y + dy * c.r * 1.15;
+  if (c.tier === 'big') { fx.ring(hx, hy, 3.2, '#c9a66b', 0.5); fx.dust(hx, hy, dx, dy, 1); fx.dust(hx, hy, -dx, -dy, 0.8); camera.shake(0.45 * clamp(1 - Math.hypot(c.x - player.x, c.y - player.y) / 16, 0, 1)); }
+  else fx.dust(hx, hy, dx, dy, c.tier === 'mid' ? 0.5 : 0.3);
+}
 /** Events from the wave director, inside a simulation step. */
 function onWaveEvent(e) {
   if (e.type === 'wave') { hud.banner('Wave ' + e.n, e.total + ' critters incoming'); audio.sfx.wave(); }
@@ -260,7 +266,7 @@ function simStep(h) {
   if (run.mode === 'run') {                                  // waves, critters, hearts
     health.update(h); score.update(h);
     const ctx = { player: { x: player.x, y: player.y, r: rad }, world: arena.world, others: critters };
-    for (const c of critters) if (c.step(h, ctx) === 'attack' && run.state === 'playing') hurtPlayer(c);
+    for (const c of critters) { const res = c.step(h, ctx); if (res) { strikeFx(c); if (res === 'attack' && run.state === 'playing') hurtPlayer(c); } }   // 'attack' landed, 'whiff' dodged
     if (run.state === 'playing' && !tutorial.active) {                          // wave 1 waits for the lesson
       const live = critters.reduce((n, c) => n + (c.state === 'dead' ? 0 : 1), 0);
       for (const e of director.step(h, live)) onWaveEvent(e);

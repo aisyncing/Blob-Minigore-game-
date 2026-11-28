@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toon } from '../engine/stage.js';
 import { springProp as spring } from '../engine/spring.js';
 import { WALK, walkPose, phaseAt } from './critterWalk.js';
+import { attackPose, attackWeight } from './critterAttack.js';
 
 // The brown Furry from the Minigore 2 character sheet: shaggy layered fur, pointed ears, a cream muzzle, black glossy eyes, angry brows and a
 // wide mouth full of jagged teeth. Three sizes share the design: Mini (round, low), Furry (upright, hunched), Giant (massive, long arms).
@@ -19,6 +20,7 @@ export const PALETTE = {
 
 /** Bone indices, and the order the skeleton is built in. */
 export const BONE = { root: 0, body: 1, head: 2, armL: 3, armR: 4, footL: 5, footR: 6 };
+const STRIKE_KICK = { small: 0.6, mid: 1.4, big: 5 };      // squash jolt (spring impulse) when a strike lands: the giant's slam is felt through its whole body
 const shared = {};
 const rng = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -122,7 +124,7 @@ export class CritterView {
     this.mark = new THREE.Mesh(S.markGeo, this.markMat); this.mark.position.y = 0.05; this.group.add(this.mark);
     this.tilt = { x: 0, z: 0, vx: 0, vz: 0 }; this.sq = 0; this.sqv = 0; this.flash = 0; this.phase = Math.random() * 6; this.age = 0;      // phase: where in its stride it starts
     this.rest = this.bones.map(b => b.position.clone());                              // the bones' rest positions; the walk offsets from these
-    this.walkD = 0; this.speedSm = 0; this.pose = {}; this.arms = { l: 0, lv: 0, r: 0, rv: 0 }; this.stepN = undefined; this.lx = undefined; this.ly = 0;
+    this.walkD = 0; this.speedSm = 0; this.pose = {}; this.arms = { l: 0, lv: 0, r: 0, rv: 0 }; this.stepN = undefined; this.lx = undefined; this.ly = 0; this.apose = {}; this.prevState = undefined;
     this.rig.visible = false; this.shadow.visible = false;
   }
   /** dx,dy: the direction the pellets were travelling. */
@@ -144,7 +146,7 @@ export class CritterView {
     // Walking. The stride follows the ground the critter really covers (a blocked or shoved critter does not run on the spot).
     const W = WALK[c.tier], B = this.bones, R = this.rest, mini = c.tier === 'small';
     let dist = 0; if (this.lx !== undefined && dt > 0) dist = Math.min(Math.hypot(c.x - this.lx, c.y - this.ly), (c.speed * 1.6 + 0.5) * dt); this.lx = c.x; this.ly = c.y;
-    this.walkD += dist; this.speedSm += (Math.min(1, dt > 0 ? dist / dt / c.speed : 0) - this.speedSm) * Math.min(1, dt * 10);
+    this.walkD += dist; this.speedSm += (Math.min(1, dt > 0 ? dist / dt / Math.max(c.speed, 0.01) : 0) - this.speedSm) * Math.min(1, dt * 10);
     const x = Math.min(1, Math.max(0, (this.speedSm - 0.15) / 0.5)), m = x * x * (3 - 2 * x);   // 0 standing, 1 walking, eased
     const p = phaseAt(c.tier, this.walkD, this.phase), w = walkPose(c.tier, p, m, this.pose);
     const stepN = Math.floor(p / Math.PI); if (this.stepN !== undefined && stepN !== this.stepN && m > 0.6) this.sqv -= W.thud; this.stepN = stepN;   // a heavy foot landing
@@ -156,8 +158,21 @@ export class CritterView {
     spring(this.arms, 'l', 'lv', W.armK, W.armD, dt, w.armL); spring(this.arms, 'r', 'rv', W.armK, W.armD, dt, w.armR);   // arms follow with weight (the spring is stiff enough to keep up with each size's cadence, softer for the heavy ones)
     B[BONE.armL].rotation.x = this.arms.l; B[BONE.armR].rotation.x = this.arms.r;
     const bounce = Math.abs(Math.sin(p)) * m;
-    this.rig.position.y = w.hop * r;
-    const sq = this.sq + (1 - bounce) * m * 0.07;
+    // Attacking: the attack pose (src/hero/critterAttack.js) takes over from the walk, blended in and out, driven by the logic's wind-up / recover timers.
+    let a = 0, lunge = 0, poseSq = 0;
+    if (c.state === 'windup' || c.state === 'recover') {
+      const k = 1 - c.t / Math.max(1e-6, c.actDur), q = attackPose(c.tier, c.state, k, this.apose); a = attackWeight(c.state, c.actDur - c.t, k);
+      const mix = (cur, target) => cur + (target - cur) * a, tremble = c.tier === 'big' && c.state === 'windup' ? Math.sin(this.age * 55) * 0.05 * k : 0;   // the giant's raised fists shake
+      torso.rotation.set(mix(torso.rotation.x, q.lean), mix(torso.rotation.y, q.twist), mix(torso.rotation.z, q.roll)); torso.position.y = mix(torso.position.y, R[mini ? BONE.head : BONE.body].y + q.lift);
+      if (!mini) B[BONE.head].rotation.set(mix(B[BONE.head].rotation.x, q.head), mix(B[BONE.head].rotation.y, -q.twist * 0.5), mix(B[BONE.head].rotation.z, 0));
+      B[BONE.armL].rotation.set(mix(B[BONE.armL].rotation.x, q.armL + tremble), 0, q.armLZ * a); B[BONE.armR].rotation.set(mix(B[BONE.armR].rotation.x, q.armR - tremble), 0, q.armRZ * a);
+      for (const f of [BONE.footL, BONE.footR]) B[f].position.set(R[f].x, mix(B[f].position.y, R[f].y + Math.max(0, q.lift) * 0.5), mix(B[f].position.z, R[f].z));   // planted; up on its toes as it rises
+      lunge = q.lunge * a; poseSq = q.squash * a;
+    } else B[BONE.armL].rotation.z = B[BONE.armR].rotation.z = 0;
+    if (this.prevState === 'windup' && c.state === 'recover') this.sqv -= STRIKE_KICK[c.tier];
+    this.prevState = c.state;
+    this.rig.position.set(Math.sin(c.heading) * lunge, w.hop * r * (1 - a), Math.cos(c.heading) * lunge);
+    const sq = this.sq + (1 - bounce) * m * 0.07 * (1 - a) + poseSq;
     this.rig.rotation.set(this.tilt.x, c.heading, this.tilt.z);
     this.rig.scale.set(r * (1 - sq * 0.5), r * (1 + sq), r * (1 - sq * 0.5));
     this.shadow.scale.setScalar(r * 1.15 * (1 - bounce * 0.12));

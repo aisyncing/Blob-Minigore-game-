@@ -88,3 +88,49 @@ test('arms swing visibly at every size', () => {
   const s = { small: swing('small'), mid: swing('mid'), big: swing('big') };
   for (const t of Object.keys(s)) assert.ok(s[t] > 0.25, `${t} arms swing ${s[t].toFixed(2)} rad`);
 });
+
+test('a critter with no speed (or any odd input) never produces NaN in its transforms', () => {
+  for (const tier of ['small', 'mid', 'big']) {
+    const w = walkers(tier); w.c.speed = 0; for (let i = 0; i < 30; i++) { w.c.x += 0.05; w.v.update(DT, i * DT); }
+    for (const state of ['windup', 'recover']) { w.c.state = state; w.c.actDur = 0.3; w.c.t = 0.15; w.v.update(DT, 1); }
+    for (const o of [w.v.rig.position, w.v.rig.scale, w.v.rig.rotation, ...w.v.bones.map(b => b.position), ...w.v.bones.map(b => b.rotation)]) for (const n of o.toArray().slice(0, 3)) assert.ok(Number.isFinite(n), `${tier}: ${n}`);
+  }
+});
+
+// ---- the attack, through the real view ----
+import { TIERS } from '../src/game/critters.js';
+const attackFrames = (w, state, dur, from, to) => { w.c.state = state; w.c.actDur = dur; const peak = {}; for (let i = from; i <= to; i++) { w.c.t = dur * (1 - i / 100); w.v.update(0.005, i); if (i === to) Object.assign(peak, { armL: w.v.bones[BONE.armL].rotation.x, armR: w.v.bones[BONE.armR].rotation.x, lean: (w.c.tier === 'small' ? w.v.bones[BONE.head] : w.v.bones[BONE.body]).rotation.x, lunge: Math.hypot(w.v.rig.position.x, w.v.rig.position.z) }); } return peak; };
+
+test('the wind-up and strike reach the bones: giant hoists both fists then slams, furry hoists one claw, mini crouches then dives', () => {
+  const big = walkers('big'); big.c.heading = 0.7;
+  let p = attackFrames(big, 'windup', 0.5, 0, 100); assert.ok(p.armL < -2.4 && p.armR < -2.4, `giant fists overhead (${p.armL.toFixed(2)}, ${p.armR.toFixed(2)})`); assert.ok(p.lean < -0.25, 'leaning back');
+  p = attackFrames(big, 'recover', 0.45, 0, 20); assert.ok(p.armL > -0.8 && p.lean > 0.3, `slammed down (${p.armL.toFixed(2)})`);
+  assert.ok(p.lunge > 0.1 && p.lunge <= TIERS.big.atk.reach + 1e-6, 'the lunge goes along its heading and stays inside its reach');
+  const mid = walkers('mid'); p = attackFrames(mid, 'windup', 0.3, 0, 100); assert.ok(p.armR < -2.2 && p.armL > -1, 'furry: one claw up');
+  const mini = walkers('small'); p = attackFrames(mini, 'windup', 0.15, 0, 100); assert.ok(p.lean < -0.3 && p.armL > 0.5, 'mini crouches and draws back');
+  p = attackFrames(mini, 'recover', 0.25, 0, 30); assert.ok(p.lean > 0.4 && p.lunge > 0.25 && p.lunge <= TIERS.small.atk.reach + 1e-6, 'mini dives forward');
+});
+
+test('after the attack the critter goes back to a clean rest pose (no arm splay or lunge left over)', () => {
+  for (const tier of ['small', 'mid', 'big']) {
+    const w = walkers(tier); attackFrames(w, 'windup', 0.4, 0, 100); attackFrames(w, 'recover', 0.4, 0, 100); w.c.state = 'chase'; w.c.t = 0;
+    for (let i = 0; i < 120; i++) w.v.update(DT, i);                              // standing still again
+    const o = offsets(w.v); assert.ok(Math.abs(o.armL) + Math.abs(o.armR) < 0.02, `${tier}: arms at rest`);
+    for (const b of [BONE.armL, BONE.armR]) assert.ok(Math.abs(w.v.bones[b].rotation.z) < 1e-6, `${tier}: no leftover splay`);
+    assert.ok(Math.hypot(w.v.rig.position.x, w.v.rig.position.z) < 1e-6, `${tier}: no leftover lunge`);
+  }
+});
+
+test('an attack cut short mid-pose (state changes abruptly) leaves no arm splay behind', () => {
+  for (const tier of ['small', 'mid', 'big']) {
+    const w = walkers(tier); attackFrames(w, 'windup', 0.4, 0, 100);                  // fully wound up: arms splayed
+    assert.ok(Math.abs(w.v.bones[BONE.armL].rotation.z) + Math.abs(w.v.bones[BONE.armR].rotation.z) > 0.05, `${tier}: splayed at the peak`);
+    w.c.state = 'chase'; w.v.update(DT, 0);
+    for (const b of [BONE.armL, BONE.armR]) assert.equal(w.v.bones[b].rotation.z, 0, `${tier}: splay cleared`);
+  }
+});
+
+test('the strike gives the body a jolt, the giant the biggest', () => {
+  const jolt = tier => { const w = walkers(tier); w.c.state = 'windup'; w.c.actDur = 0.3; w.c.t = 0.01; w.v.update(DT, 0); w.v.sqv = 0; w.c.state = 'recover'; w.c.actDur = 0.3; w.c.t = 0.3; w.v.update(DT, 1); return w.v.sqv; };
+  assert.ok(jolt('big') < jolt('mid') && jolt('mid') < jolt('small') && jolt('small') < 0, 'negative impulses, bigger for bigger critters');
+});
