@@ -14,6 +14,24 @@ export const PAGE = `
 <div id="hud"><div id="hearts"></div><div id="scoreBox"><b id="scoreV">0</b><span id="comboV"></span></div><div id="waveV"></div></div>
 <div id="banner"><b></b><small></small></div>
 <div id="arrows"></div>
+<div id="tutorial" data-step="move" data-dev="pad"><div class="card">
+  <svg class="pad" viewBox="0 0 200 120" width="168" height="101">
+    <g class="trig l2"><rect x="32" y="12" width="36" height="15" rx="6"/><text x="50" y="23">L2</text></g>
+    <g class="trig r2"><rect x="132" y="12" width="36" height="15" rx="6"/><text x="150" y="23">R2</text></g>
+    <rect class="hl r2ring" x="128" y="8" width="44" height="23" rx="9"/>
+    <path class="body" d="M60 30H140C165 30 182 50 190 85C194 102 184 112 172 108C162 105 156 92 148 84H52C44 92 38 105 28 108C16 112 6 102 10 85C18 50 35 30 60 30Z"/>
+    <circle class="well" cx="58" cy="56" r="17"/><circle class="hl ring" cx="58" cy="56" r="22"/>
+    <g class="orbit"><circle class="knob" cx="65" cy="56" r="11"/></g>
+    <circle class="well" cx="122" cy="84" r="13"/><circle class="knob dim" cx="122" cy="84" r="9"/>
+    <path class="dpad" d="M84 76h8v6h6v8h-6v6h-8v-6h-6v-8h6z"/>
+    <g class="face"><circle cx="148" cy="42" r="5"/><circle cx="148" cy="62" r="5"/><circle cx="138" cy="52" r="5"/><circle cx="158" cy="52" r="5"/></g>
+  </svg>
+  <div class="keys">
+    <div class="kmove"><b class="k kw">W</b><div><b class="k ka">A</b><b class="k ks">S</b><b class="k kd">D</b></div></div>
+    <svg class="kshoot" viewBox="0 0 40 56" width="46" height="64"><rect class="mbody" x="3" y="3" width="34" height="50" rx="16"/><path class="mbtn" d="M20 3A17 17 0 0 0 3 20V26H20Z"/><path class="mline" d="M3 26H37M20 3V26"/></svg>
+  </div>
+  <b class="cap">Move</b>
+</div></div>
 <div id="over"><div class="box"><h2>Game over</h2><p id="overStats"></p><p id="overBest"></p><button id="bRetry" class="primary big">Play again</button><small>Press <b>A</b> on the controller or Enter</small></div></div>
 <div id="ammo"><div id="shells"></div><div id="reloadBar"><i></i></div></div>
 <aside id="panel">

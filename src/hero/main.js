@@ -41,6 +41,7 @@ import { createShotVisuals } from './shotViz.js';
 import { createHud } from './hud.js';
 import { createCameraRig } from './camera.js';
 import { createPanel } from './panel.js';
+import { createTutorialView } from './tutorialView.js';
 
 const STEP = 1 / RULES.sim.hz;
 const { hero: HERO, run: RUN, feedback: FEEDBACK } = RULES;
@@ -113,7 +114,7 @@ dualsense.autoConnect();                                                        
 
 /* ------------------------------ the run: waves of critters, hearts, score ------------------------------ */
 const health = createHealth(), score = createScore(), director = createDirector();
-const hud = createHud(stage.camera);
+const hud = createHud(stage.camera), tutorialView = createTutorialView(stage.camera);
 const bestKey = 'blobshooter.best';
 const loadBest = () => { try { return +localStorage.getItem(bestKey) || 0; } catch { return 0; } };
 const tutorial = createTutorial(), tutorialOff = /[?&]tutorial=off/.test(location.search);   // the first-run lesson (move, then shoot); ?tutorial=off skips it (automated tests)
@@ -381,6 +382,7 @@ function frame(now) {
   if (mode === 'play') {
     const inRun = run.mode === 'run';
     hud.update({ inRun, playing: run.state === 'playing', health, score, director, critters, player });
+    tutorialView.update(tutorial.state.stage, player, snap);
     heroes[selected].root.visible = !inRun || !(health.invulnerable && run.state === 'playing' && Math.floor(clock * 14) % 2 === 0);      // the hero flickers while it cannot be hurt
   }
   fx.update(dt); camera.update(Math.max(realDt, 1e-4), mode, { player, P, mouseAim: snap.mouseAim, mouse: input.mouse, aimMag: snap.aim.mag }); stage.render();

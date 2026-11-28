@@ -21,7 +21,7 @@ export const RULES = {
   },
   aim: { rangePad: 3 },     // aim help looks this much further than the gun reaches
   tutorial: {               // the two-step first-run lesson (src/game/tutorial.js)
-    slow: 0.4,              // game speed while a lesson waits for the player (1 = normal)
+    slow: 0.5,              // game speed while a lesson waits (1 = normal). 0.5 = exactly one 120 Hz step per frame on a 60 Hz screen, so it moves evenly; 0.4 hitches every 5th frame
     ease: 0.15,             // seconds to go between slow and normal speed
     moveMag: 0.5,           // the left stick must read at least this (after the deadzone) ...
     moveHold: 0.2,          // ... for this many real seconds in a row to count as "moved"
