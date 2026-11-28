@@ -4,8 +4,8 @@
 import { resolveWorld } from './collide.js';
 
 export const TIERS = {
-  big:   { r: 0.95, hp: 64, speed: 2.5, score: 30, split: 'mid',   splitN: 2, mass: 3.0 },
-  mid:   { r: 0.62, hp: 26, speed: 3.5, score: 15, split: 'small', splitN: 2, mass: 1.6 },
+  big:   { r: 1.2,  hp: 64, speed: 2.5, score: 30, split: 'mid',   splitN: 2, mass: 3.0 },
+  mid:   { r: 0.7,  hp: 26, speed: 3.5, score: 15, split: 'small', splitN: 2, mass: 1.6 },
   small: { r: 0.38, hp: 11, speed: 4.7, score: 8,  split: null,    splitN: 0, mass: 0.8 },
 };
 export const ATTACK_COOLDOWN = 0.9, PLAYER_HIT_PAD = 0.15;
