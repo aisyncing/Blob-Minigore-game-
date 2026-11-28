@@ -11,15 +11,26 @@ Everything needed to take over this project. Read this first, then `docs/iterati
 npm install
 npm run build          # dist/hero.html (the game), dist/index.html (controller lab), dist/hero-artifact.html (fragment for embedding)
 npm run serve          # http://localhost:8080/hero.html
-npm test               # 190 unit tests (node:test), about 1 s
+npm test               # 194 unit tests (node:test), a few seconds
 npm run test:browser   # Playwright tests with a simulated controller (slow; headless runs at only 4-10 fps)
+npm run golden -- out/new out/ref   # golden master: record a scripted session, compare against an earlier recording
+npm run bench          # simulation hot-path micro-benchmark (Node)
+npm run perf           # JS cost per frame in the real page, wave-10 crowd
 ```
+
+**Refactoring safety net.** `tests/browser/golden.mjs` makes the page fully deterministic (seeded `Math.random`, fake clock, hand-stepped frames,
+simulated controller), plays a scripted session (menu, turntable, survival fight with strafing + right-stick aim + rapid fire, manual reload,
+bites to game over, practice range, keyboard + mouse, range reset, back to menu) and records gameplay state plus the WebGL image and the whole page
+(HUD included) at 12 checkpoints. Record a reference from a known-good commit (e.g. in a `git worktree`), change code, record again with the
+reference as the 2nd argument: it exits 1 on any difference. A pure refactor must come out identical. Anything that consumes `Math.random`
+in a different order (new effects, reordered construction) legitimately changes the output; then compare the page screenshots by eye.
+Known flaky: `haptics-feel.mjs` fails about 1 run in 3 on its reload-beat ordering check (timing; it does so on the original code too).
 Players just double-click `dist/hero.html` in Chrome or Edge. It is one self-contained file. WebHID (PS5 adaptive triggers and motor rumble over HID) only works in that standalone file, NOT inside the published embedded Artifact (browsers block WebHID and the Gamepad API in frames).
 
 Playwright is not in package.json; it lives at `/opt/node-tools/node_modules` in the original sandbox. Browser tests accept `?practice` in the URL to start in the training range (the test harness adds it automatically).
 
 ## The game as it stands
-Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click) -> **hero select** (D-pad/LB/RB or 1/2/3, A or Enter or Play) -> **survival run**.
+Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click) -> **turntable hero select** (left stick / D-pad / LB RB or 1/2/3 spin the table, a small rumble tick per switch; names float over the heads; A, Enter or the big **Play Now** button confirms with a ~2 s fading buzz) -> **survival run**.
 
 - **Survival run:** waves of Furries climb out of the ground at pulsing red markers (1.1 s warning, 0.45 s rise, untouchable until out). 5 hearts, about 1.1 s invulnerability after a bite, a heart back every 3 cleared waves. Score with a kill chain multiplier (x1 to x5, +1 per 4 kills, drops after 2.5 s) and a 50 x wave bonus. Best score in localStorage `blobshooter.best`. Game over panel: A/Enter/click to retry (after 0.8 s).
 - **Enemies (from `docs/reference/Minigore_2_Brown_Furry_Character_Sheets.pdf`):** tiers `big` (Giant Furry), `mid` (Furry), `small` (Mini Furry) in `src/game/critters.js`. They nest: big -> 2 mid -> 2 small each. Stats: big r1.2 hp64 speed2.5, mid r0.7 hp26 speed3.5, small r0.38 hp11 speed4.7. Chase with limited turn rate, separate from neighbours, slide round walls with a short detour, bite on contact (0.9 s cooldown), knockback from pellets (lighter = further).
@@ -41,11 +52,14 @@ Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click
 - Owner preference: simple UI, no clutter, sliders must visibly change something.
 
 ## Code map
-- `src/hero/main.js` wiring: page template, loop (fixed 120 Hz sim in `simStep`, separate render), run logic (`startRun/endRun/hurtPlayer/critterDied/spawnCritter`), HUD, arrows, setup screen, tuning panels. `window.__hero` exposes internals for tests.
-- `src/hero/hero.js` player rig (Blender-authored arms/shotgun in `src/assets/hero_rig.glb`); `designs.js` the three blobs; `critter.js` procedural Furry geometry (merged, vertex-coloured, one mesh per critter) and `CritterView`; `dummy.js` training dummy; `reload.js`, `gun.js`, `rigAsset.js`.
-- `src/game/`: `critters.js`, `waves.js`, `run.js` (health, score), `shotgun.js` (state machine), `blast.js`, `pellets.js`, `ballistics.js`, `assist.js`, `collide.js`, `movement.js`, `arena.js`, `layout.js`, `targets.js`.
-- `src/input/`: `source.js`, `process.js`, `pad.js`, `menu.js`, `haptics.js`, `dualsense.js`. `src/engine/`: `stage.js`, `fx.js`, `audio.js` (synthesised sounds), `spring.js`. `src/tuning.js` registry (localStorage `blobshooter.tuning.v1`, merge writes).
-- `src/lab/` the separate controller lab page (`dist/index.html`). `blender/` bpy scripts (`build_and_export.py`, reach check; needs `PYTHONPATH=/home/user/bl-libs` in the original sandbox). `tools/build.mjs` esbuild single-file builds. `tests/*.test.mjs` unit, `tests/browser/*.mjs` browser (includes `game-run.mjs` for the survival loop).
+Three layers. `src/game/` is the simulation: pure, no DOM, no three.js, unit tested. `src/input/` turns devices into one snapshot and drives
+rumble / triggers. `src/hero/` is everything you see, plus `main.js`, which wires it all together.
+- `src/hero/main.js` composition root: builds the pieces, owns the fixed 120 Hz `simStep` (movement, aim, gun, pellets, critters, waves), the run flow (`startRun/endRun/hurtPlayer/critterDied/dummyDied/spawnCritter/onWaveEvent`), modes (`choose/setMode`), menus and the frame loop. `P` holds the live tuning values (refreshed on change, not per frame). `window.__hero` exposes internals for tests.
+- `src/hero/` views: `page.js` (markup), `turntable.js` (character select stage, name labels, demo motion), `hud.js` (shells, reload bar, hearts, score, wave, banner, game over, edge arrows; writes the DOM only on change), `shotViz.js` (aim cone, crosshair, pellet tracers), `camera.js` (turntable shot, chase cam, kick, shake), `panel.js` (tuning sliders, setup-screen vibration/trigger controls and tests, diagnostics), `hero.js` player rig (Blender-authored arms/shotgun in `src/assets/hero_rig.glb`), `designs.js` the three blobs, `critter.js` procedural Furry geometry and `CritterView`, `dummy.js`, `reload.js`, `gun.js`, `rigAsset.js`.
+- `src/game/`: `rules.js` (fixed gameplay rules: shove, wave bonus, heal cadence, spawn distance, retry delay...), `critters.js` (`TIERS` = enemy stats), `waves.js`, `run.js` (health, score), `shotgun.js` (state machine), `blast.js`, `pellets.js`, `ballistics.js`, `assist.js`, `collide.js`, `movement.js`, `arena.js`, `layout.js`, `targets.js`.
+- `src/input/`: `source.js`, `process.js`, `pad.js`, `menu.js`, `haptics.js`, `dualsense.js`. `src/engine/`: `stage.js`, `fx.js`, `audio.js` (synthesised sounds), `spring.js` (+ `springProp`), `math.js` (`clamp`, `wrapAngle`), `dom.js`. `src/tuning.js` the player-facing settings registry (localStorage `blobshooter.tuning.v1`, merge writes).
+- Where things go: a player setting -> `DEFS` in `src/tuning.js` and read it in `readTuning`. A fixed design number -> `src/game/rules.js` (or the enemy's `TIERS` row). A new enemy: logic class with the target interface (`x, y, r, alive, kind, damage(), update()`, optional `knock()`), a view class, then spawn/death wiring in `main.js`. A new weapon: the shot itself is `shoot()` in `main.js` over `launchBlast` + `PelletSim`; the fire/reload state machine is `shotgun.js`.
+- `src/lab/` the separate controller lab page (`dist/index.html`). `blender/` bpy scripts (`build_and_export.py`, reach check; needs `PYTHONPATH=/home/user/bl-libs` in the original sandbox). `tools/build.mjs` esbuild single-file builds; `tools/bench.mjs`, `tools/perf-browser.mjs` performance. `tests/*.test.mjs` unit (`hotpath-equivalence.test.mjs` pins the optimised ray/aim code to the original implementations), `tests/browser/*.mjs` browser (`game-run.mjs` survival loop, `golden.mjs` golden master).
 
 ## Owner's working preferences
 - After ANY change, send the playable link: publish `dist/hero-artifact.html` as an Artifact (https://claude.ai/artifact/M8wSucndZUgpH9AwEN9UBz) and send standalone `dist/hero.html`.
@@ -60,6 +74,8 @@ Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click
 4. Roadmap (`docs/iteration-plan.md`): 4 horde polish (spawn patterns, crowd steering at 100+ critters, performance), 5 the world (painted arena, crates dropping pickups, readability), 6 power-ups/beast mode/dual wield, 7 more enemy types (runner, chain-reacting bomb, lurker, boss) and a full run, 8 long-term loop and polish. Furry expressions from the sheet (neutral/attack/hurt) and softer fur are not done.
 5. Never verified on hardware beyond the owner's DualSense; the combined browser suite is slow.
 6. The shipped `hero_rig.glb` was not regenerated; Blender export is not byte-deterministic.
+7. **Bug (found by a soak test, present before the refactor too):** a critter can wedge itself against the east maze's spine wall (e.g. a big one at about (5.8, -7.4) while the hero stands near spawn) and never reach the hero. A wave only ends when every critter is dead, so the run stalls until the player walks into the maze. Critter steering (`Critter.step`) only has a short side-step detour; it needs a way round long walls (escalating detour, waypoints at the maze gaps, or a burrow-and-respawn safety net).
+8. Technical debt left on purpose: the shot itself (`shoot`) and enemy death effects still live in `main.js` (a second weapon or enemy type is the moment to pull them into their own modules, not before); targets carry presentation bookkeeping (`dmgAcc`, `dmgT`, `sndT`) set by `main.js`; `fx.js` gives every particle its own material (simple, but ~160 potential draw calls; instancing would change blending/sorting slightly, so it needs a visual check); `reloadPose()` still returns barrel/hand poses that only the tests read (the Blender clip animates the reload now). The frame is render-bound (~220-255 draw calls incl. the shadow pass); the simulation is ~0.1 ms per step.
 
 ## Git
 Branch `claude/bold-rubin-qa5cd9` holds all work (commits end with a Claude co-author trailer). Do not force-push; merge `main` into it if it diverges. Do not open a pull request unless the owner asks.

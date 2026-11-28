@@ -45,7 +45,7 @@ export class DummyView {
   respawn() { this.pop = 0; this.popV = 0; this.group.visible = true; this.flash = 0; this.barT = 0.8; }
   kill() { this.group.visible = false; }
   update(dt, t) {
-    const tg = this.t; this.group.visible = tg.alive || this.group.visible && false; 
+    const tg = this.t; this.group.visible = tg.alive;
     if (!tg.alive) return;
     this.group.position.set(tg.x, 0, tg.y);
     spring(this.tilt, 'x', 'vx', 140, 7, dt); spring(this.tilt, 'z', 'vz', 140, 7, dt);

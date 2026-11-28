@@ -4,10 +4,9 @@ import { shapeStick, curveAt, analyseRest, createDriftSession, clamp, mouseAim }
 import { BUTTON_NAMES } from '../input/pad.js';
 import { createInput } from '../input/source.js';
 import { DEFS, tuning } from '../tuning.js';
+import { $, fmt } from '../engine/dom.js';
 
 const SIM_STEP = 1 / 120;
-const $ = (s, r = document) => r.querySelector(s);
-const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '-');
 
 /* ------------------------------ page ------------------------------ */
 const LAB_DEFS = DEFS.filter(d => d.page !== 'hero');

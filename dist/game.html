@@ -457,10 +457,12 @@ var tuning = {
   // what the game really uses (release is always below press)
 };
 
-// src/lab/main.js
-var SIM_STEP = 1 / 120;
+// src/engine/dom.js
 var $ = (s, r = document) => r.querySelector(s);
 var fmt = (v, d = 2) => Number.isFinite(v) ? v.toFixed(d) : "-";
+
+// src/lab/main.js
+var SIM_STEP = 1 / 120;
 var LAB_DEFS = DEFS.filter((d) => d.page !== "hero");
 var groups = [...new Set(LAB_DEFS.map((d) => d.group))];
 $("#app").innerHTML = `
