@@ -1,4 +1,8 @@
-# Blob shooter
+# Blob Minigore V2
+
+> Taking this project over? Read **HANDOFF.md** first.
+
+Survive waves of furry critters with a double-barrel shotgun. Controller first, keyboard and mouse as backup. Open `dist/hero.html` in Chrome or Edge.
 
 A Minigore-inspired arena shooter for controller (keyboard and mouse work too), starring a friendly blob with a shotgun.
 Built one mechanic at a time. See `docs/iteration-plan.md` and `docs/minigore-research.md`.
@@ -50,7 +54,7 @@ npm run test:browser    # browser tests with a simulated controller (needs Playw
 
 ## Packaging
 
-`npm run package` builds, then writes `blob-shooter.zip` containing the source plus the built pages in `dist/`.
+`npm run package` builds, then writes `blob-minigore-v2.zip` containing the source plus the built pages in `dist/`.
 
 ## Blender (arms, hands and shotgun)
 
