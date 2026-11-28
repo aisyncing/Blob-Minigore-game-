@@ -6,9 +6,13 @@
 //   zip    "Charger": closes in, stops, shakes (a telegraph you can read), locks onto where you are GOING, then dashes.
 //
 // SPEED RULE: the player (7.5 u/s) is always faster than any furry, including the peaks of a hop or stomp, a lunge and a Charger's dash.
-// Crowd control is the cheap kind (seek + separation through a grid), no per-frame pathfinding, so 100+ enemies stay light.
+// Crowd control is the cheap kind (seek + separation through a grid), no per-enemy pathfinding, so 100+ enemies stay light.
+// LOST: an enemy that cannot see the player, or has stopped getting closer, follows a shared flow field (nav.js) round the walls
+// instead, so the S corridor cannot trap one. In sight and making progress, the chase is exactly the plain seek above. As a last
+// resort one that has been stuck out of sight for STUCK.burrow seconds digs back in and climbs out somewhere with a clear way to you.
 import { resolveWorld } from './collide.js';
 import { hasLineOfSight } from './ballistics.js';
+import { createNav } from './nav.js';
 
 export const KINDS = {
   furry: { tiers: [
@@ -20,6 +24,10 @@ export const KINDS = {
 };
 export const tierOf = (kind, tier) => KINDS[kind].tiers[tier];
 export const EMERGE = 0.5;                                                     // seconds a new enemy spends digging out of the ground
+
+/** sight: re-checked every `look` s; progress: sampled every second, `gain` closer counts; `nav` stalled seconds force the flow field
+ *  (kept for `hold` s once it gets going again); `burrow` stalled seconds out of sight, further than `far` from the player: dig in and out elsewhere */
+export const STUCK = { look: 0.2, gain: 0.4, nav: 2, hold: 3, burrow: 8, far: 6 };
 
 const SEP_PAD = 0.18, CELL = 2.2, TAU = Math.PI * 2;
 const rot = (x, y, a) => { const c = Math.cos(a), s = Math.sin(a); return [x * c - y * s, x * s + y * c]; };
@@ -36,7 +44,7 @@ export function gaitPulse(gait, g) {
 export class Crowd {
   constructor(world, { rng = Math.random } = {}) {
     this.world = world; this.rng = rng; this.list = []; this.nextId = 1; this.time = 0;
-    this.grid = new Map();
+    this.grid = new Map(); this.nav = createNav(world);
   }
   clear() { this.list.length = 0; }
   /** Total "danger cost" of what is alive: the wave director spends against this. */
@@ -50,6 +58,7 @@ export class Crowd {
       isEnemy: true, id: this.nextId++, kind, tier, x, y, r: T.r, h: T.h, hp: T.hp, maxHp: T.hp, speed: T.speed, cost: T.cost, score: T.score, alive: true,
       vx: 0, vy: 0, kx: 0, ky: 0, fx: 0, fy: 1,                                 // velocity, knockback, facing
       orbit: (rng() * 2 - 1) * 0.55, detour: 0, detourT: 0, wall: 0,           // personal flank angle; wall-follow state
+      los: true, losT: 0, lost: false, stall: 0, stallT: 0, stallM: Infinity, stallNav: false, navHold: 0, reburrows: 0, // sight, progress, flow-field use
       state: emerge ? 'emerge' : 'chase', st: 0, lockX: 0, lockY: 0, struck: false,
       cd: o.cd ?? 0, age: 0, flash: 0, sq: 0, sqv: 0, ph: rng() * TAU, sndT: 0, // attack cooldown, visuals
       gait: rng(), hurtT: 9, hitX: 0, hitY: 0, seed: rng(),                    // gait cycle, time since last hit and its direction, look variation
@@ -103,11 +112,33 @@ export class Crowd {
         } else if (e.state === 'recover') { speed *= 0.3; steer = 6; if (e.st >= T.recover) { e.state = 'chase'; e.st = 0; } }
       }
       if (e.state === 'chase') {
-        // flank: far away, swing the approach round by this enemy's own angle; close in, come straight
-        const f = Math.max(0, Math.min(1, (d - 4) / 10)) * e.orbit; if (f) [ux, uy] = rot(ux, uy, f);
-        // wall-follow: pinned against a prop for a moment, sidestep along it, then try again
-        if (e.wall > 0.25 && e.detourT <= 0) { e.detour = this.rng() < 0.5 ? -1 : 1; e.detourT = 0.9; e.wall = 0; }
-        if (e.detourT > 0) { e.detourT -= dt; [ux, uy] = rot(ux, uy, e.detour * 1.25); }
+        if ((e.losT -= dt) <= 0) { e.losT = STUCK.look; e.los = hasLineOfSight(e.x, e.y, player.x, player.y, this.world); }
+        if (e.stall >= STUCK.nav) e.navHold = STUCK.hold; else e.navHold -= dt;
+        const field = !e.los || e.navHold > 0 ? this.nav.field(e.r, player.x, player.y, this.time) : null;
+        // progress, once a second: along the path while following the field, as the crow flies otherwise
+        if ((e.stallT += dt) >= 1) {
+          const m = field ? this.nav.costAt(field, e.x, e.y) : d;
+          if (!!field !== e.stallNav) e.stall = Math.min(e.stall, STUCK.nav);      // switching measure: keep the count, but do not judge the jump
+          else e.stall = !(isFinite(m) && e.stallM - m >= STUCK.gain) && gap > 1.2 ? e.stall + 1 : 0;   // no way at all counts as no progress
+          e.stallM = m; e.stallNav = !!field; e.stallT = 0;
+        }
+        const way = field && this.nav.steer(field, e.x, e.y, e.r);
+        e.lost = !!way;
+        if (way) { [ux, uy] = way; e.detourT = 0; }                              // round the walls by the flow field
+        else {
+          // flank: far away, swing the approach round by this enemy's own angle; close in, come straight
+          const f = Math.max(0, Math.min(1, (d - 4) / 10)) * e.orbit; if (f) [ux, uy] = rot(ux, uy, f);
+          // wall-follow: pinned against a prop for a moment, sidestep along it, then try again
+          if (e.wall > 0.25 && e.detourT <= 0) { e.detour = this.rng() < 0.5 ? -1 : 1; e.detourT = 0.9; e.wall = 0; }
+          if (e.detourT > 0) { e.detourT -= dt; [ux, uy] = rot(ux, uy, e.detour * 1.25); }
+        }
+        // last resort: stuck out of sight for a long time (or for a moment, with no way through at all: a Giant in a lane too narrow
+        // for it), dig in and climb out where there is a clear way to the player
+        if ((e.stall >= STUCK.burrow || (field && e.stall >= STUCK.nav && !way && !isFinite(this.nav.costAt(field, e.x, e.y)))) && !e.los && gap > STUCK.far) {
+          const s = this.nav.spot(this.nav.field(e.r, player.x, player.y, this.time), player.x, player.y, e.r, this.rng);
+          if (s) { Object.assign(e, { x: s.x, y: s.y, vx: 0, vy: 0, kx: 0, ky: 0, state: 'emerge', st: 0, stall: 0, stallM: Infinity, los: true, losT: 0, lost: false, reburrows: e.reburrows + 1 }); continue; }
+          e.stall = STUCK.nav;
+        }
         speed *= gaitPulse(T.gait, e.gait);                                     // the gait sets the rhythm of the approach
         if (gap < 0.05) speed = 0;                                              // already touching: hold the spot instead of pushing in
       }

@@ -239,7 +239,7 @@ export function createFurries(scene, fx) {
   function draw(e, i, t, dt, player, dying) {
     const T = tierOf(e.kind, e.tier), L = lookOf(e), a = e.anim || (e.anim = newAnim(e)), big = e.tier === 2 && e.kind === 'furry';
     if (!a.tint) { const v = 0.9 + e.seed * 0.2; a.tint = [L.tint[0] * v, L.tint[1] * v, L.tint[2] * (0.94 + e.seed * 0.12)]; }
-    if (!a.born) { a.born = true; if (e.state === 'emerge') dirtBurst(e.x, e.y, T.h); }
+    if (a.born !== (e.reburrows || 0) + 1) { a.born = (e.reburrows || 0) + 1; if (e.state === 'emerge') dirtBurst(e.x, e.y, T.h); }   // again each time it digs out somewhere new
     const sp = Math.hypot(e.vx, e.vy), mov = clamp01((sp - 0.15) / 1.4), g = e.gait, f = frac(g), s2 = Math.sin(TAU * g), c2 = Math.cos(TAU * g);
     const dP = player ? Math.hypot(player.x - e.x, player.y - e.y) : 99, angry = clamp01((7 - dP) / 4);
     let bob = 0, roll = 0, lean = L.lean + 0.08 * mov, sx = 1, sy = 1, armL = -0.05, armR = -0.05, splay = 0.2, legL = 0, legR = 0, liftL = 0, liftR = 0;
