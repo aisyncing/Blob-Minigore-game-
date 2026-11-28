@@ -20,5 +20,12 @@ export const RULES = {
     corpseLinger: 0.25,     // a killed critter's body stays this long before it is removed
   },
   aim: { rangePad: 3 },     // aim help looks this much further than the gun reaches
+  tutorial: {               // the two-step first-run lesson (src/game/tutorial.js)
+    slow: 0.4,              // game speed while a lesson waits for the player (1 = normal)
+    ease: 0.15,             // seconds to go between slow and normal speed
+    moveMag: 0.5,           // the left stick must read at least this (after the deadzone) ...
+    moveHold: 0.2,          // ... for this many real seconds in a row to count as "moved"
+    gap: 1.0,               // real seconds of normal play between the two lessons
+  },
   feedback: { numberDelay: 0.09, bigNumber: 60, hitSoundGap: 0.05 },
 };
