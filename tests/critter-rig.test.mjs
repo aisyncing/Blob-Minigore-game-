@@ -49,3 +49,42 @@ test('moving one bone moves exactly the parts bound to it (and its children), no
 });
 
 test('a view can be disposed (frees its skeleton)', () => { assert.doesNotThrow(() => make('mid').dispose()); });
+
+// ---- the walk, driven through the real view ----
+const DT = 1 / 60, walkers = tier => { const c = new Critter({ tier, x: 0, y: 0, warn: 0, rise: 0 }); c.speed = { small: 4.7, mid: 3.5, big: 2.5 }[tier]; const v = new CritterView(new THREE.Group(), c); v.phase = 0; return { c, v }; };
+const offsets = v => ({ footL: v.bones[BONE.footL].position.y - v.rest[BONE.footL].y, footR: v.bones[BONE.footR].position.y - v.rest[BONE.footR].y, armL: v.bones[BONE.armL].rotation.x, armR: v.bones[BONE.armR].rotation.x });
+const walk = ({ c, v }, frames, speed = c.speed) => { for (let i = 0; i < frames; i++) { c.x += speed * DT; v.update(DT, i * DT); } };
+
+test('a critter standing still keeps its feet and arms at rest', () => {
+  for (const tier of ['small', 'mid', 'big']) { const w = walkers(tier); walk(w, 120, 0); const o = offsets(w.v); assert.ok(Math.abs(o.footL) + Math.abs(o.footR) + Math.abs(o.armL) + Math.abs(o.armR) < 1e-6, tier); }
+});
+
+test('a walking critter steps with alternating feet and swinging arms, then settles when it stops', () => {
+  for (const tier of ['small', 'mid', 'big']) {
+    const w = walkers(tier); let upL = 0, upR = 0, both = 0, armMax = 0;
+    walk(w, 45);                                                                  // get up to full stride
+    for (let i = 0; i < 120; i++) { walk(w, 1); const o = offsets(w.v); if (o.footL > 0.01) upL++; if (o.footR > 0.01) upR++; if (o.footL > 0.01 && o.footR > 0.01) both++; armMax = Math.max(armMax, Math.abs(o.armL)); }
+    assert.ok(upL > 20 && upR > 20, `${tier}: both feet step (${upL}/${upR})`); assert.ok(both <= 3, `${tier}: feet alternate (both up ${both} frames)`); assert.ok(armMax > 0.2, `${tier}: arms swing (${armMax.toFixed(2)})`);
+    walk(w, 180, 0); const o = offsets(w.v); assert.ok(Math.abs(o.footL) + Math.abs(o.footR) + Math.abs(o.armL) + Math.abs(o.armR) < 0.02, `${tier}: back to rest after stopping`);
+  }
+});
+
+test('a critter that is blocked does not run on the spot, and a teleport cannot spin its legs', () => {
+  const w = walkers('mid'); walk(w, 60); const d0 = w.v.walkD;
+  walk(w, 120, 0); assert.ok(Math.abs(w.v.walkD - d0) < 1e-9, 'no distance covered, no stride');
+  w.c.x += 500; w.v.update(DT, 0); assert.ok(w.v.walkD - d0 <= (w.c.speed * 1.6 + 0.5) * DT + 1e-9, 'one frame can only advance the stride a little');
+});
+
+test('the heavy ones thump when a foot lands; the mini does not', () => {
+  for (const [tier, expect] of [['big', true], ['mid', true], ['small', false]]) {
+    const w = walkers(tier); walk(w, 60); let kicks = 0, prev = w.v.sqv;
+    for (let i = 0; i < 240; i++) { walk(w, 1); if (w.v.sqv < prev - 0.3) kicks++; prev = w.v.sqv; }
+    assert.equal(kicks > 0, expect, `${tier}: thump ${kicks}`);
+  }
+});
+
+test('arms swing visibly at every size', () => {
+  const swing = tier => { const w = walkers(tier); walk(w, 60); let max = 0; for (let i = 0; i < 150; i++) { walk(w, 1); max = Math.max(max, Math.abs(w.v.arms.l)); } return max; };
+  const s = { small: swing('small'), mid: swing('mid'), big: swing('big') };
+  for (const t of Object.keys(s)) assert.ok(s[t] > 0.25, `${t} arms swing ${s[t].toFixed(2)} rad`);
+});

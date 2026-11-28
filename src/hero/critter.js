@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toon } from '../engine/stage.js';
 import { springProp as spring } from '../engine/spring.js';
+import { WALK, walkPose, phaseAt } from './critterWalk.js';
 
 // The brown Furry from the Minigore 2 character sheet: shaggy layered fur, pointed ears, a cream muzzle, black glossy eyes, angry brows and a
 // wide mouth full of jagged teeth. Three sizes share the design: Mini (round, low), Furry (upright, hunched), Giant (massive, long arms).
@@ -119,7 +120,9 @@ export class CritterView {
     this.shadow = new THREE.Mesh(S.discGeo, S.shadowMat); this.shadow.position.y = 0.03; this.group.add(this.shadow);
     this.markMat = new THREE.MeshBasicMaterial({ color: '#ff6b6b', transparent: true, opacity: 0.8, depthWrite: false });
     this.mark = new THREE.Mesh(S.markGeo, this.markMat); this.mark.position.y = 0.05; this.group.add(this.mark);
-    this.tilt = { x: 0, z: 0, vx: 0, vz: 0 }; this.sq = 0; this.sqv = 0; this.flash = 0; this.phase = Math.random() * 6; this.age = 0;
+    this.tilt = { x: 0, z: 0, vx: 0, vz: 0 }; this.sq = 0; this.sqv = 0; this.flash = 0; this.phase = Math.random() * 6; this.age = 0;      // phase: where in its stride it starts
+    this.rest = this.bones.map(b => b.position.clone());                              // the bones' rest positions; the walk offsets from these
+    this.walkD = 0; this.speedSm = 0; this.pose = {}; this.arms = { l: 0, lv: 0, r: 0, rv: 0 }; this.stepN = undefined; this.lx = undefined; this.ly = 0;
     this.rig.visible = false; this.shadow.visible = false;
   }
   /** dx,dy: the direction the pellets were travelling. */
@@ -138,12 +141,26 @@ export class CritterView {
     if (c.state === 'rise') { const k = Math.min(1, 1 - c.t / Math.max(0.01, c.riseT)); this.mark.scale.setScalar(r * (1.5 + k * 0.8)); this.markMat.opacity = 0.8 * (1 - k); this.rig.scale.setScalar(r * Math.max(0.05, k)); this.rig.position.y = -(1 - k) * r * 1.2; this.shadow.scale.setScalar(r * 1.15 * k); return; }
     spring(this.tilt, 'x', 'vx', 150, 8, dt); spring(this.tilt, 'z', 'vz', 150, 8, dt);
     spring(this, 'sq', 'sqv', 210, 9, dt);
-    this.phase += dt * (6 + c.speed * 1.6); const hop = Math.abs(Math.sin(this.phase)), land = 1 - hop;
-    this.rig.position.y = hop * r * (c.tier === 'big' ? 0.12 : c.tier === 'mid' ? 0.2 : 0.3);
-    const sq = this.sq + land * 0.07;
-    this.rig.rotation.set(this.tilt.x, c.heading, this.tilt.z + Math.sin(this.phase) * 0.07);
+    // Walking. The stride follows the ground the critter really covers (a blocked or shoved critter does not run on the spot).
+    const W = WALK[c.tier], B = this.bones, R = this.rest, mini = c.tier === 'small';
+    let dist = 0; if (this.lx !== undefined && dt > 0) dist = Math.min(Math.hypot(c.x - this.lx, c.y - this.ly), (c.speed * 1.6 + 0.5) * dt); this.lx = c.x; this.ly = c.y;
+    this.walkD += dist; this.speedSm += (Math.min(1, dt > 0 ? dist / dt / c.speed : 0) - this.speedSm) * Math.min(1, dt * 10);
+    const x = Math.min(1, Math.max(0, (this.speedSm - 0.15) / 0.5)), m = x * x * (3 - 2 * x);   // 0 standing, 1 walking, eased
+    const p = phaseAt(c.tier, this.walkD, this.phase), w = walkPose(c.tier, p, m, this.pose);
+    const stepN = Math.floor(p / Math.PI); if (this.stepN !== undefined && stepN !== this.stepN && m > 0.6) this.sqv -= W.thud; this.stepN = stepN;   // a heavy foot landing
+    const torso = mini ? B[BONE.head] : B[BONE.body], breath = Math.sin(this.age * 2.3 + this.phase) * 0.012 * (1 - m);
+    torso.position.y = R[mini ? BONE.head : BONE.body].y + breath; torso.rotation.set(w.lean + (mini ? w.nod : 0), w.twist, w.roll);
+    if (!mini) B[BONE.head].rotation.set(w.nod, -w.twist * 0.6, -w.roll * 0.5);                      // the head sways less than the body and nods each step
+    B[BONE.footL].position.set(R[BONE.footL].x, R[BONE.footL].y + w.footLy, R[BONE.footL].z + w.footLz);
+    B[BONE.footR].position.set(R[BONE.footR].x, R[BONE.footR].y + w.footRy, R[BONE.footR].z + w.footRz);
+    spring(this.arms, 'l', 'lv', W.armK, W.armD, dt, w.armL); spring(this.arms, 'r', 'rv', W.armK, W.armD, dt, w.armR);   // arms follow with weight (the spring is stiff enough to keep up with each size's cadence, softer for the heavy ones)
+    B[BONE.armL].rotation.x = this.arms.l; B[BONE.armR].rotation.x = this.arms.r;
+    const bounce = Math.abs(Math.sin(p)) * m;
+    this.rig.position.y = w.hop * r;
+    const sq = this.sq + (1 - bounce) * m * 0.07;
+    this.rig.rotation.set(this.tilt.x, c.heading, this.tilt.z);
     this.rig.scale.set(r * (1 - sq * 0.5), r * (1 + sq), r * (1 - sq * 0.5));
-    this.shadow.scale.setScalar(r * 1.15 * (1 - hop * 0.12));
+    this.shadow.scale.setScalar(r * 1.15 * (1 - bounce * 0.12));
     this.flash = Math.max(0, this.flash - dt * 8); this.mat.emissiveIntensity = this.flash * 0.85;
   }
 }
