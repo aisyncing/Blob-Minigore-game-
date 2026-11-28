@@ -11,11 +11,13 @@ Everything needed to take over this project. Read this first, then `docs/iterati
 npm install
 npm run build          # dist/hero.html (the game), dist/index.html (controller lab), dist/hero-artifact.html (fragment for embedding)
 npm run serve          # http://localhost:8080/hero.html
-npm test               # 203 unit tests (node:test), a few seconds
+npm test               # 242 unit tests (node:test), a few seconds
 npm run test:browser   # Playwright tests with a simulated controller (slow; headless runs at only 4-10 fps)
 npm run golden -- out/new out/ref   # golden master: record a scripted session, compare against an earlier recording
 npm run bench          # simulation hot-path micro-benchmark (Node)
 npm run perf           # JS cost per frame in the real page, wave-10 crowd
+node tools/critter-lineup.mjs dist/hero.html out [poseFn]   # 6 critters (2 per size) in a fixed deterministic scene, for old-vs-new image diffs
+node tools/critter-sheet.mjs dist/hero.html out walk|attack # contact sheets: a walk cycle or an attack, 8-12 frames per size, from a low side camera
 ```
 
 **Refactoring safety net.** `tests/browser/golden.mjs` makes the page fully deterministic (seeded `Math.random`, fake clock, hand-stepped frames,
@@ -45,6 +47,15 @@ Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click
 - **Smart vibration (`src/input/haptics.js`, pure + unit tested):** per-barrel patterns, hit thud scaled by pellets landed, pop on kills, wall bumps, one light patter per footfall of the walk animation (hero.js `onStep`), reload clicks, a `hurt` pattern when bitten. Groups: shoot / reload / walk.
 - **Settings (0-10 sliders on the setup screen):** Overall 10, Shooting 6.5, Reloading 3, Walking 5, plus switches for rumble, smart vibration, adaptive triggers. Effective strength = (slider/10)^1.5. The owner reported the motors feel nearly on/off across the slider range. A **Strength ramp** test button (setup screen, "Try the feel") plays 5%..100% so the real response curve can be calibrated; the owner has NOT yet reported its result. If it is flat, calibrate a curve or duty-cycle low values.
 - Astro Bot-style walking haptics are voice-coil haptics and cannot be driven from a browser; the footstep patter is the closest approximation.
+
+## Critters: animation and attacks
+Design, decisions and phase log: `docs/critter-plan.md`. Only the giant splits (into 2 mids); mids and minis die for good.
+- **Look and skeleton (`src/hero/critter.js`):** each size is ONE `SkinnedMesh` (one draw call) with rigid skinning on a 7-bone skeleton `BONE = { root, body, head, armL, armR, footL, footR }` (exported; each view makes its own bones, `dispose()` frees the skeleton). At rest it is exactly the old static shape. The mini has no separate torso: its `head` bone is the whole body, so the view drives `head` as its torso.
+- **Walk (`src/hero/critterWalk.js`, pure):** stride phase follows the distance the critter really covers (no foot skate, a blocked critter stands still); per-size tuning in `WALK` (stride, reach, lift, arm swing, sway, bounce, landing thump, arm spring stiffness). Mini scurry, furry stomp, giant lumber.
+- **Attack logic (`src/game/critters.js`):** per-size `TIERS[...].atk = { windup, recover, reach }`. States `chase > windup > recover > chase`; plants its feet while winding up; the strike lands only if the player is within `reach` at that instant; `step()` returns `'attack'` (landed), `'whiff'` (dodged) or null; bite rate unchanged (`ATTACK_COOLDOWN` 0.9 s from the start of one wind-up to the next). A dead critter can never strike.
+- **Attack animation (`src/hero/critterAttack.js`, pure):** per-size WIND and STRIKE poses blended over the walk. Mini crouch + lunge-bite, furry rear back + claw swipe, giant both fists up + ground slam. `main.js` `strikeFx` adds the slam ring, dust and camera thump (giant) or dust (others) on every strike result.
+- **Tuning knobs:** difficulty of dodging = `atk.reach` (smaller = easier) and `atk.windup`; look = `WALK` / `ATTACK`. No sounds exist yet for the wind-up or the slam (an easy follow-up in `src/engine/audio.js`).
+- Tests: `tests/critter-rig.test.mjs`, `critter-walk.test.mjs`, `critter-attack.test.mjs`, `critter-attack-pose.test.mjs`. Pitfall when testing: three.js draws 4 `Math.random()` values for every object it creates (UUIDs), so adding objects shifts the golden test's seeded random sequence; judge visual identity with `tools/critter-lineup.mjs`, not golden pixels.
 
 ## First-run tutorial
 Before Wave 1 of the first survival run after each page load: step 1 "MOVE" (left stick / WASD), then step 2 "SHOOT" (R2 / click / Space), each in 0.5x slow motion with an animated card under the hero. Full design, decisions and phase log: `docs/tutorial-plan.md`.
@@ -77,7 +88,7 @@ rumble / triggers. `src/hero/` is everything you see, plus `main.js`, which wire
 - Short, honest status. Do not claim hardware behaviour you could not test.
 
 ## Known gaps / next steps
-1. Playtest and tune wave balance, enemy stats, hearts; get the owner's feel numbers.
+1. Playtest and tune wave balance, enemy stats, hearts; get the owner's feel numbers. Wave 1 was reported as too hard for first-timers; it is now 1 big (-> 2 mids) + 3 mids, easier because mids no longer split and attacks are dodgeable, but still untuned (`waveSpec` in `src/game/waves.js`). Never verified by hand: the critter animation timing and the slam feel on real hardware.
 2. Calibrate vibration with the Strength ramp result.
 3. Unresolved from the owner: "bring back the shotgun and remove the pistol". No pistol exists in code; the hero already has a double-barrel shotgun. Ask what they see.
 4. Roadmap (`docs/iteration-plan.md`): 4 horde polish (spawn patterns, crowd steering at 100+ critters, performance), 5 the world (painted arena, crates dropping pickups, readability), 6 power-ups/beast mode/dual wield, 7 more enemy types (runner, chain-reacting bomb, lurker, boss) and a full run, 8 long-term loop and polish. Furry expressions from the sheet (neutral/attack/hurt) and softer fur are not done.
