@@ -19,10 +19,21 @@ export const RUMBLE = {
   pop:     [{ at: 0, strong: 0.55, weak: 0.85, ms: 45 }, { at: 45, strong: 0.35, weak: 0.30, ms: 55 }, { at: 100, strong: 0.12, weak: 0.05, ms: 60 }],             // a dummy bursts: sharper and bigger than a plain hit
   hurt:    [{ at: 0, strong: 1.0, weak: 0.8, ms: 90 }, { at: 90, strong: 0.5, weak: 0.3, ms: 110 }, { at: 200, strong: 0.2, weak: 0.1, ms: 120 }],                  // a critter bit you
   bump:    [{ at: 0, strong: 0.50, weak: 0.15, ms: 50 }, { at: 50, strong: 0.15, weak: 0.05, ms: 40 }],                                                              // running into a wall
+  switch:  [{ at: 0, strong: 0.12, weak: 0.30, ms: 30 }],                                                                                                             // the turntable turns to a new design
 };
+/** A pulse train that opens fast and tight, then spaces out and fades to nothing by `totalMs` — confirms a menu pick. */
+function confirmTrain(totalMs = 2000) {
+  const segs = []; let t = 0;
+  while (t < totalMs - 10) {
+    const prog = t / totalMs, period = 40 + prog * 260, on = Math.max(14, period * 0.4), amp = 1 - prog;
+    segs.push({ at: Math.round(t), strong: amp * 0.85, weak: amp, ms: Math.round(on) }); t += period;
+  }
+  return segs;
+}
+RUMBLE.confirm = confirmTrain();
 
 /** Which of the player's volume sliders a pattern belongs to. */
-export const GROUP = { barrel1: 'shoot', barrel2: 'shoot', thud: 'shoot', pop: 'shoot', kill: 'shoot', hurt: 'shoot', eject: 'reload', grab: 'reload', insert: 'reload', close: 'reload', dry: 'reload', bump: 'walk' };
+export const GROUP = { barrel1: 'shoot', barrel2: 'shoot', thud: 'shoot', pop: 'shoot', kill: 'shoot', hurt: 'shoot', eject: 'reload', grab: 'reload', insert: 'reload', close: 'reload', dry: 'reload', bump: 'walk', switch: 'shoot', confirm: 'shoot' };
 
 /** Scaled, clamped copy of a pattern (scale 0..1 is the player's rumble strength). */
 export function rumblePattern(name, scale = 1) {
@@ -80,6 +91,10 @@ export function createHaptics({ rumble = null, trigger = null, schedule = (f, ms
     },
     reload(stage) { if (RUMBLE[stage]) play(stage); },
     kill() { play('kill'); },
+    /** The turntable turned to a different design: one small tick. */
+    menuSwitch() { play('switch'); },
+    /** A design was confirmed: a buzz that opens up and fades to nothing over ~2s. */
+    menuConfirm() { play('confirm'); },
     /** A pellet landed (or killed). Hits from one blast arrive over a few frames, so they are collected and felt once:
      *  a dull thud that grows with how many pellets hit, or a pop that grows with how many dummies burst. */
     hit(killed = false, smart = true) {

@@ -4,11 +4,10 @@ import { openGame } from './harness.mjs';
 const NAMES = ['Gumdrop', 'Sprout', 'Marshmallow'];
 const label = p => p.evaluate(() => document.querySelector('#bMode').textContent);
 const METHODS = {
-  'card click': async (g, i) => g.page.click(`#cards .card:nth-child(${i + 1})`),
   'keyboard 1/2/3': async (g, i) => g.page.keyboard.press(`Digit${i + 1}`),
   'controller d-pad / bumpers': async (g, i) => { const cur = await g.page.evaluate(() => __hero.state().selected); for (let n = 0; n < (i - cur + 3) % 3; n++) await g.tap('Right'); },
 };
-const LAUNCH = { 'Play button': g => g.page.click('#bMode'), 'Enter key': g => g.page.keyboard.press('Enter'), 'controller A': g => g.tap('A') };
+const LAUNCH = { 'Play Now button': g => g.page.click('#bPlayNow'), 'Enter key': g => g.page.keyboard.press('Enter'), 'controller A': g => g.tap('A') };
 for (const [method, select] of Object.entries(METHODS)) for (const [launchName, launch] of Object.entries(LAUNCH)) for (const target of [0, 1, 2]) {
   const g = await openGame(); const { page } = g;
   await page.click('#bStart'); await page.waitForTimeout(50);                  // leave the controller setup screen
@@ -20,4 +19,4 @@ for (const [method, select] of Object.entries(METHODS)) for (const [launchName, 
   assert.equal(s.mode, 'play', `${method} + ${launchName}: play started`); assert.equal(s.selected, target); assert.deepEqual(s.vis, [0, 1, 2].map(k => k === target), `${NAMES[target]} is the visible hero`);
   assert.equal(s.btn, 'Compare designs'); assert.deepEqual(g.errors, []); await g.close();
 }
-console.log('hero-select: all passed (3 selection methods x 3 launch methods x 3 heroes)');
+console.log('hero-select: all passed (2 selection methods x 3 launch methods x 3 heroes)');

@@ -37,13 +37,13 @@ const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '-');
 $('#app').innerHTML = `
 <canvas id="c" tabindex="0"></canvas><div id="vig"></div>
 <div id="top">
-  <h1>Blob Shooter</h1>
   <button id="bMode" class="primary">Play</button>
   <button id="bPad">Controller</button>
   <button id="bPractice">Practice range</button>
   <span class="pill" id="chipSrc">Keyboard + mouse</span>
 </div>
-<div id="cards"></div>
+<div id="turntableNames"></div>
+<button id="bPlayNow" class="primary big">Play Now</button>
 <div id="hint"></div>
 <div id="hud"><div id="hearts"></div><div id="scoreBox"><b id="scoreV">0</b><span id="comboV"></span></div><div id="waveV"></div></div>
 <div id="banner"><b></b><small></small></div>
@@ -96,14 +96,20 @@ const rig = await loadRig();                                  // arms + shotgun 
 const heroes = DESIGNS.map(d => new Hero(d, stage, fx, rig));
 let selected = 0, mode = 'compare';
 
-// compare stage: dark floor, three pedestals, a ring marking the current pick
+// compare stage: a turntable. The whole disc (floor + pedestals) spins so the chosen design settles at the fixed front slot.
+const TAU = Math.PI * 2, SLOT = TAU / heroes.length, R_TABLE = 4.3;
+let tableAngle = 0;
 const showGroup = new THREE.Group(); showGroup.position.set(SHOW.x, 0, SHOW.z); stage.scene.add(showGroup);
 {
   const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 48), new THREE.MeshToonMaterial({ color: '#1a2a28' })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; showGroup.add(floor);
-  heroes.forEach((h, i) => { const p = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 0.3, 28), new THREE.MeshToonMaterial({ color: '#5d697b' })); p.position.set((i - 1) * 4.6, 0.15, 0); p.receiveShadow = p.castShadow = true; showGroup.add(p); });
-  const L = new THREE.PointLight('#ffb347', 70, 22, 2); L.position.set(0, 5, 4); showGroup.add(L);
+  heroes.forEach((h, i) => { const a = i * SLOT, p = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 0.3, 28), new THREE.MeshToonMaterial({ color: '#5d697b' })); p.position.set(Math.sin(a) * R_TABLE, 0.15, Math.cos(a) * R_TABLE); p.receiveShadow = p.castShadow = true; showGroup.add(p); });
 }
-const pick = new THREE.Mesh(new THREE.RingGeometry(1.85, 2.05, 40), new THREE.MeshBasicMaterial({ color: '#ff6fb1', transparent: true, opacity: 0.9 })); pick.rotation.x = -Math.PI / 2; showGroup.add(pick);
+const L = new THREE.PointLight('#ffb347', 70, 22, 2); L.position.set(SHOW.x, 5, SHOW.z + 4); stage.scene.add(L);           // fixed over the front slot, so it doesn't swing with the table
+// a ring fixed at the front slot: whichever design the table has turned to is the one you'll play
+const pick = new THREE.Mesh(new THREE.RingGeometry(1.85, 2.05, 40), new THREE.MeshBasicMaterial({ color: '#ff6fb1', transparent: true, opacity: 0.9 })); pick.rotation.x = -Math.PI / 2; pick.position.set(SHOW.x, 0.01, SHOW.z + R_TABLE); stage.scene.add(pick);
+// floating name labels, one per design, projected above each head every frame while on the turntable
+const nameEls = heroes.map(h => { const el = document.createElement('div'); el.className = 'tname'; el.textContent = h.d.name; $('#turntableNames').appendChild(el); return el; });
+const _headP = new THREE.Vector3();
 
 /* ------------------------------ the training range ------------------------------ */
 const targets = [], views = new Map();
@@ -353,42 +359,39 @@ function demoState(i, t) {
 }
 
 /* ------------------------------ ui ------------------------------ */
-function buildCards() {
-  const host = $('#cards'); host.innerHTML = '';
-  heroes.forEach((h, i) => { const b = document.createElement('button'); b.className = 'card'; b.innerHTML = `<b><i>${i + 1}</i>${h.d.name}</b><small>${h.d.blurb}</small>`; b.onclick = () => choose(i); host.appendChild(b); });
-}
 function choose(i) {
-  selected = i; [...$('#cards').children].forEach((c, k) => c.classList.toggle('sel', k === i));
-  heroes.forEach((h, k) => h.setVisible(mode === 'compare' || k === i)); pick.position.x = (i - 1) * 4.6;
+  if (mode === 'compare' && i !== selected) haptics.menuSwitch();
+  selected = i;
+  heroes.forEach((h, k) => h.setVisible(mode === 'compare' || k === i));
   updateModeButton();
   if (mode === 'play') {
     heroes[i].legYaw = heroes[i].aimYaw = Math.atan2(player.aimX, player.aimY);
     heroes[i].reloadPrev = gun.progress;     // pick the reload up where it is, don't replay its earlier beats
   }
 }
-// the button always names the hero that is selected right now, however it was selected (card, 1/2/3, controller)
+// the button always names the hero that is selected right now, however it was selected (turntable, 1/2/3, controller)
 function updateModeButton() { $('#bMode').textContent = mode === 'compare' ? `Play as ${heroes[selected].d.name}` : 'Compare designs'; }
 function setMode(m) {
-  mode = m; updateModeButton();
-  arena.setVisible(m === 'play'); showGroup.visible = m === 'compare'; aimGroup.visible = cross.visible = m === 'play'; tracer.visible = m === 'play';
+  const was = mode; mode = m; updateModeButton();
+  if (was === 'compare' && m === 'play') haptics.menuConfirm();   // confirms the pick: a buzz that fades out over ~2s
+  arena.setVisible(m === 'play'); showGroup.visible = pick.visible = m === 'compare'; aimGroup.visible = cross.visible = m === 'play'; tracer.visible = m === 'play';
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
-  if (m === 'play') { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); startRun(); }
+  if (m === 'play') { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = player.v.y = 0; player.kb.x = player.kb.y = 0; player.speed = 0; gun.reset(); pellets.clear(); heroes.forEach(h => { h.root.rotation.y = 0; }); startRun(); }
   if (m === 'compare') { clearCritters(); run.state = 'idle'; $('#over').classList.remove('show'); setDummies(true); }
   document.body.classList.toggle('in-run', m === 'play');
-  heroes.forEach((h, k) => { if (m === 'compare') h.root.position.set(SHOW.x + (k - 1) * 4.6, 0, SHOW.z); });
   if (m === 'compare') $('#panel').classList.add('collapsed');            // the tuning panel only opens when asked for
-  $('#cards').style.display = m === 'compare' ? 'flex' : 'none'; $('#ammo').style.display = m === 'play' ? 'flex' : 'none';
+  $('#turntableNames').style.display = m === 'compare' ? 'block' : 'none'; $('#bPlayNow').style.display = m === 'compare' ? 'block' : 'none'; $('#ammo').style.display = m === 'play' ? 'flex' : 'none';
   document.body.classList.toggle('mode-compare', m === 'compare');
   updateHint();
 }
 function updateHint() {
-  $('#hint').innerHTML = mode === 'compare'
-    ? '<b>1</b><b>2</b><b>3</b> choose a design, <b>Enter</b> or the Play button to try it. Each one walks, strafes, idles and reloads so you can judge it.<br>Controller: <b>D-pad</b> / <b>LB</b><b>RB</b> choose, <b>A</b> plays.'
+  $('#hint').innerHTML = mode === 'compare' ? ''
     : '<b>WASD</b> move, mouse aims, <b>click</b> fires, <b>R</b> reloads, <b>C</b> compare, <b>1</b><b>2</b><b>3</b> switch design. The training range is in the north-west corner.<br>Controller: sticks move and aim, <b>RT</b> fires, <b>X</b> reloads, <b>B</b> back to the designs.';
 }
 $('#bPractice').onclick = () => { run.mode = run.mode === 'run' ? 'practice' : 'run'; if (mode === 'play') startRun(); else { $('#bPractice').textContent = run.mode === 'run' ? 'Practice range' : 'Back to survival'; } };
 $('#bRetry').onclick = () => { if (run.overT > 0.4) startRun(); };
 $('#bMode').onclick = () => setMode(mode === 'compare' ? 'play' : 'compare');
+$('#bPlayNow').onclick = () => setMode('play');
 const setupUp = () => !$('#focus').classList.contains('off');
 addEventListener('keydown', e => {
   if (e.repeat) return; audio.unlock();
@@ -495,7 +498,7 @@ $('#bCopy').onclick = async () => {
 $('#bHide').onclick = () => $('#panel').classList.add('collapsed'); $('#panelBtn').onclick = () => $('#panel').classList.remove('collapsed');
 $('#dbg').onchange = e => { arena.debug.visible = e.target.checked; };
 $('#panel').classList.add('collapsed');
-buildCards(); choose(0); setMode('compare');
+choose(0); setMode('compare');
 
 // ammo HUD
 let shellCount = 0;
@@ -512,11 +515,10 @@ const focus = new THREE.Vector3(SHOW.x, 0, SHOW.z), _t = new THREE.Vector3();
 function updateCamera(dt) {
   const cam = stage.camera;
   if (mode === 'compare') {
-    // wide screens frame all three; narrow ones (tablet portrait, phone) back off, and on very narrow ones follow the chosen design
-    const asp = cam.aspect, narrow = asp < 1.0, back = clamp(1.75 / asp, 1, 1.9);
-    focus.lerp(_t.set(SHOW.x + (narrow ? (selected - 1) * 4.6 : 0), 1.2, SHOW.z), 1 - Math.exp(-8 * dt));
-    const dist = narrow ? clamp(11 / asp * 0.62, 11, 24) : 15.5 * back;
-    cam.position.set(focus.x, 4.4 + (dist - 15.5) * 0.15, focus.z + dist); cam.lookAt(focus.x, 1.15, focus.z); stage.lightFollow(SHOW.x, SHOW.z); return;
+    // the table turns the chosen design to a fixed front slot, so the camera just holds steady on it; narrow screens zoom in a touch
+    const asp = cam.aspect, dist = clamp(11.5 / Math.min(asp, 1), 11.5, 17);
+    focus.lerp(_t.set(SHOW.x, 1.25, SHOW.z + R_TABLE * 0.35), 1 - Math.exp(-8 * dt));
+    cam.position.set(focus.x, 4.0 + (dist - 15.5) * 0.15, focus.z + dist); cam.lookAt(focus.x, 1.15, focus.z); stage.lightFollow(SHOW.x, SHOW.z); return;
   }
   const reach = player.hasAim ? (snap.mouseAim ? clamp(Math.hypot(input.mouse.x - player.x, input.mouse.y - player.y) / 9, 0, 1) : snap.aim.mag || (player.assistTarget ? 0.6 : 0)) : 0;
   const tx = player.x + player.vx * tuning.get('cam.velLead') + player.aimX * tuning.get('cam.aimLead') * reach;
@@ -546,7 +548,19 @@ function frame(now) {
   const dtv = Math.max(dt, 1e-4);
 
   if (mode === 'compare') {
-    heroes.forEach((h, i) => { const d = demoState(i, clock); h.update(dtv, { x: SHOW.x + (i - 1) * 4.6, y: SHOW.z, ...d }, P); });
+    const target = -selected * SLOT; let da = (target - tableAngle) % TAU; if (da > Math.PI) da -= TAU; else if (da < -Math.PI) da += TAU;
+    tableAngle += da * (1 - Math.exp(-7 * dtv)); showGroup.rotation.y = tableAngle;
+    const r = canvas.getBoundingClientRect();
+    heroes.forEach((h, i) => {
+      const a = i * SLOT + tableAngle, wx = SHOW.x + Math.sin(a) * R_TABLE, wz = SHOW.z + Math.cos(a) * R_TABLE, d = demoState(i, clock);
+      h.update(dtv, { x: wx, y: wz, ...d }, P); h.root.rotation.y = a;
+      const front = (Math.cos(a) + 1) / 2;                                 // 1 facing the camera, 0 at the back of the table
+      _headP.set(wx, 1.95, wz).project(stage.camera);
+      const el = nameEls[i];
+      if (_headP.z > 1 || _headP.z < -1) { el.style.display = 'none'; return; }
+      el.style.display = 'block'; el.style.left = (r.left + (_headP.x * 0.5 + 0.5) * r.width) + 'px'; el.style.top = (r.top + (-_headP.y * 0.5 + 0.5) * r.height) + 'px';
+      el.style.opacity = (0.3 + 0.7 * front).toFixed(2); el.style.transform = `translate(-50%,-100%) scale(${(0.7 + 0.4 * front).toFixed(2)})`;
+    });
   } else {
     const h = heroes[selected];
     h.update(dtv, { x: player.x, y: player.y, vx: player.vx, vy: player.vy, speed: player.speed, aimYaw: player.hasAim ? Math.atan2(player.aimX, player.aimY) : null, reload: gun.progress, spent: [gun.state.spent[1], gun.state.spent[0]] }, P);
@@ -617,4 +631,4 @@ function updateDiag() {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { updateHud, run, health, score, director, critters, startRun, resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };
+window.__hero = { updateHud, run, health, score, director, critters, startRun, resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, haptics, updatePelletVisuals, state: () => ({ mode, selected }), steps: () => steps };

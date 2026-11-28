@@ -19,6 +19,7 @@ const find = async pred => (await reports()).find(pred);
 
 await g.tap('A'); await g.tap('A');                                              // wake the title, enter play with Gumdrop
 assert.equal(await page.evaluate(() => __hero.state().mode), 'play');
+await page.evaluate(() => __hero.haptics.stop());                               // cancel the "design confirmed" buzz so it doesn't leak into the trigger-feel checks below
 // connect (the page's button; the fake picker returns the simulated DualSense)
 await page.evaluate(() => { document.querySelector('#feel').open = true; document.querySelector('#bDs').click(); });
 await waitReport("r.id === 2 && r.data[0] === 0x0c");
