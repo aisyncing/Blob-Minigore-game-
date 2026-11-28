@@ -11,7 +11,7 @@ Everything needed to take over this project. Read this first, then `docs/iterati
 npm install
 npm run build          # dist/hero.html (the game), dist/index.html (controller lab), dist/hero-artifact.html (fragment for embedding)
 npm run serve          # http://localhost:8080/hero.html
-npm test               # 194 unit tests (node:test), a few seconds
+npm test               # 203 unit tests (node:test), a few seconds
 npm run test:browser   # Playwright tests with a simulated controller (slow; headless runs at only 4-10 fps)
 npm run golden -- out/new out/ref   # golden master: record a scripted session, compare against an earlier recording
 npm run bench          # simulation hot-path micro-benchmark (Node)
@@ -27,7 +27,7 @@ in a different order (new effects, reordered construction) legitimately changes 
 Known flaky: `haptics-feel.mjs` fails about 1 run in 3 on its reload-beat ordering check (timing; it does so on the original code too).
 Players just double-click `dist/hero.html` in Chrome or Edge. It is one self-contained file. WebHID (PS5 adaptive triggers and motor rumble over HID) only works in that standalone file, NOT inside the published embedded Artifact (browsers block WebHID and the Gamepad API in frames).
 
-Playwright is not in package.json; it lives at `/opt/node-tools/node_modules` in the original sandbox. Browser tests accept `?practice` in the URL to start in the training range (the test harness adds it automatically).
+Playwright is not in package.json; it lives at `/opt/node-tools/node_modules` in the original sandbox. Browser tests accept `?practice` in the URL to start in the training range (the test harness adds it automatically) and `?tutorial=off` to skip the first-run lesson (golden.mjs and game-run.mjs use it).
 
 ## The game as it stands
 Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click) -> **turntable hero select** (left stick / D-pad / LB RB or 1/2/3 spin the table, a small rumble tick per switch; names float over the heads; A, Enter or the big **Play Now** button confirms with a ~2 s fading buzz) -> **survival run**.
@@ -46,6 +46,15 @@ Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click
 - **Settings (0-10 sliders on the setup screen):** Overall 10, Shooting 6.5, Reloading 3, Walking 5, plus switches for rumble, smart vibration, adaptive triggers. Effective strength = (slider/10)^1.5. The owner reported the motors feel nearly on/off across the slider range. A **Strength ramp** test button (setup screen, "Try the feel") plays 5%..100% so the real response curve can be calibrated; the owner has NOT yet reported its result. If it is flat, calibrate a curve or duty-cycle low values.
 - Astro Bot-style walking haptics are voice-coil haptics and cannot be driven from a browser; the footstep patter is the closest approximation.
 
+## First-run tutorial
+Before Wave 1 of the first survival run after each page load: step 1 "MOVE" (left stick / WASD), then step 2 "SHOOT" (R2 / click / Space), each in 0.5x slow motion with an animated card under the hero. Full design, decisions and phase log: `docs/tutorial-plan.md`.
+- `src/game/tutorial.js` (pure state machine `off > move > gap > shoot > done`, `timeScale`, `active`) with numbers in `RULES.tutorial` (`slow`, `ease`, `moveMag`, `moveHold`, `gap`); tests in `tests/tutorial.test.mjs`.
+- `src/hero/main.js` hooks: `frame()` scales dt by `tutorial.timeScale` (input, menus, camera, haptics and the card stay on real time) and calls `tutorial.update`; `simStep` holds the wave director while `tutorial.active` and calls `tutorial.onShot()` next to `shoot()` (so the lesson's shot is the real gun firing, never a fake); `startRun` / `setMode('compare')` cancel it (speed returns to exactly 1); a finished lesson is not repeated on retry.
+- `src/hero/tutorialView.js` + `#tutorial` in `page.js` + the end of `hero.css`: the card (inline SVG gamepad, keyboard variant, CSS animations).
+- Movement counts only at stick magnitude >= 0.5 after the deadzone for 0.2 real seconds, so drift and flicks do not complete it. To show it on every page load nothing changes; to remember completion across loads add a localStorage flag where `tutorial.begin()` is called in `startRun`.
+- Wave 1 balance is untouched (still `waveSpec(1)` and the director's timings); the lesson only delays the director, so a later difficulty change does not interact with it.
+- Tests: `tests/browser/tutorial.mjs` (real time: slow motion, wave director untouched, drift ignored, one tap = one shot, prompt visibility and layout at desktop and phone size, leave and return, keyboard flow).
+
 ## UI
 - `#focus` is the controller setup screen (connection light, vibration sliders, adaptive-trigger connect, "Try the feel", stick deadzones, Start). The **Controller** top-bar button reopens it.
 - Game tuning panel (the **Tuning** button, hidden by default) shows only impactful settings; everything else is in `HIDDEN_IN_GAME` in `src/tuning.js` and keeps its default. An "Advanced" fold holds copy settings, presets, last shot, diagnostics.
@@ -55,7 +64,7 @@ Flow: **Controller setup screen** (first thing on load) -> **Start** (A or click
 Three layers. `src/game/` is the simulation: pure, no DOM, no three.js, unit tested. `src/input/` turns devices into one snapshot and drives
 rumble / triggers. `src/hero/` is everything you see, plus `main.js`, which wires it all together.
 - `src/hero/main.js` composition root: builds the pieces, owns the fixed 120 Hz `simStep` (movement, aim, gun, pellets, critters, waves), the run flow (`startRun/endRun/hurtPlayer/critterDied/dummyDied/spawnCritter/onWaveEvent`), modes (`choose/setMode`), menus and the frame loop. `P` holds the live tuning values (refreshed on change, not per frame). `window.__hero` exposes internals for tests.
-- `src/hero/` views: `page.js` (markup), `turntable.js` (character select stage, name labels, demo motion), `hud.js` (shells, reload bar, hearts, score, wave, banner, game over, edge arrows; writes the DOM only on change), `shotViz.js` (aim cone, crosshair, pellet tracers), `camera.js` (turntable shot, chase cam, kick, shake), `panel.js` (tuning sliders, setup-screen vibration/trigger controls and tests, diagnostics), `hero.js` player rig (Blender-authored arms/shotgun in `src/assets/hero_rig.glb`), `designs.js` the three blobs, `critter.js` procedural Furry geometry and `CritterView`, `dummy.js`, `reload.js`, `gun.js`, `rigAsset.js`.
+- `src/hero/` views: `page.js` (markup), `turntable.js` (character select stage, name labels, demo motion), `tutorialView.js` (first-run prompt card), `hud.js` (shells, reload bar, hearts, score, wave, banner, game over, edge arrows; writes the DOM only on change), `shotViz.js` (aim cone, crosshair, pellet tracers), `camera.js` (turntable shot, chase cam, kick, shake), `panel.js` (tuning sliders, setup-screen vibration/trigger controls and tests, diagnostics), `hero.js` player rig (Blender-authored arms/shotgun in `src/assets/hero_rig.glb`), `designs.js` the three blobs, `critter.js` procedural Furry geometry and `CritterView`, `dummy.js`, `reload.js`, `gun.js`, `rigAsset.js`.
 - `src/game/`: `rules.js` (fixed gameplay rules: shove, wave bonus, heal cadence, spawn distance, retry delay...), `critters.js` (`TIERS` = enemy stats), `waves.js`, `run.js` (health, score), `shotgun.js` (state machine), `blast.js`, `pellets.js`, `ballistics.js`, `assist.js`, `collide.js`, `movement.js`, `arena.js`, `layout.js`, `targets.js`.
 - `src/input/`: `source.js`, `process.js`, `pad.js`, `menu.js`, `haptics.js`, `dualsense.js`. `src/engine/`: `stage.js`, `fx.js`, `audio.js` (synthesised sounds), `spring.js` (+ `springProp`), `math.js` (`clamp`, `wrapAngle`), `dom.js`. `src/tuning.js` the player-facing settings registry (localStorage `blobshooter.tuning.v1`, merge writes).
 - Where things go: a player setting -> `DEFS` in `src/tuning.js` and read it in `readTuning`. A fixed design number -> `src/game/rules.js` (or the enemy's `TIERS` row). A new enemy: logic class with the target interface (`x, y, r, alive, kind, damage(), update()`, optional `knock()`), a view class, then spawn/death wiring in `main.js`. A new weapon: the shot itself is `shoot()` in `main.js` over `launchBlast` + `PelletSim`; the fire/reload state machine is `shotgun.js`.

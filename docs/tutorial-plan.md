@@ -21,7 +21,7 @@ Wave balance is NOT part of this work (wave 1 being hard is a separate follow-up
 1. Logic + unit tests (`tutorial.js`, `RULES.tutorial`, `tests/tutorial.test.mjs`). DONE.
 2. DONE. Wire into main.js (frame dt scale, director gate, onShot, begin/cancel, `?tutorial=off`, `__hero.tutorial`), `tests/browser/tutorial.mjs`; golden must still match with the flag off.
 3. DONE. Prompt view: `src/hero/tutorialView.js` + `#tutorial` markup in page.js + CSS (inline SVG pad, stick circling / R2 press), positioned under the hero (project player position like hud.js arrows), keyboard art variant, phone-width scaling.
-4. Full regression (`npm test`, build, browser suite, golden, real-time playtest), HANDOFF.md update, send `dist/hero.html`. Needs the user's real DualSense playtest.
+4. DONE. Full regression (`npm test`, build, browser suite, golden, real-time playtest), HANDOFF.md update, send `dist/hero.html`. Needs the user's real DualSense playtest.
 
 ## Phase log
 - Phase 1: added `RULES.tutorial`, `src/game/tutorial.js`, `tests/tutorial.test.mjs` (9 tests; mutation-checked). `npm test` 203/203 pass. No game code touched.
@@ -32,3 +32,5 @@ Wave balance is NOT part of this work (wave 1 being hard is a separate follow-up
   Changed `RULES.tutorial.slow` 0.4 -> 0.5: at 0.4x on a 60 Hz screen every 5th frame has no sim step (visible hitch); 0.5x is exactly one step per frame at 60 Hz and alternates evenly at 120 Hz.
   Results: `tests/browser/tutorial.mjs` now also checks the prompt (visible with the right step/caption/device, animations running at rate 1 in slow motion, fades out between steps and after R2, on screen and clear of the ammo display at 1280x720 and 390x844); mutation-checked. Screenshots reviewed by eye (pad move/shoot, keyboard, phone). `npm test` 203/203; golden still identical with `?tutorial=off`.
   Headless browsers fade slowly, so tests wait for the computed opacity instead of fixed delays.
+- Phase 4: full regression. `npm test` 203/203; all builds OK (lab, hero, artifact fragment, game); golden identical to the pre-tutorial build (12 checkpoints, state + pixels); all 11 browser tests pass except `haptics-feel`, whose known flaky reload-beat check failed 2 of 3 runs (practice mode, tutorial not involved; flaky on the original code too); per-frame JS 0.25 ms (unchanged). HANDOFF.md updated.
+  Needs a human: playtest on the real DualSense (slow-motion feel at the real refresh rate, card position, R2 timing, and that stick drift on the owner's pad does not complete step 1 early).
