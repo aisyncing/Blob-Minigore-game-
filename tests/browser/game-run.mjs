@@ -1,7 +1,7 @@
 // The survival game in the real page: waves of critters, splitting, hearts, game over, retry. Driven by hand through simStep (headless frame rate is too low to play in real time).
 import assert from 'node:assert/strict';
 import { openGame, freeze } from './harness.mjs';
-const g = await openGame({ practice: false }); const { page } = g;
+const g = await openGame({ practice: false, query: '?tutorial=off' }); const { page } = g;
 await g.tap('A'); await g.tap('A');                                                        // leave the setup screen, then play
 await freeze(page);
 const state = () => page.evaluate(() => { const H = __hero; return { mode: H.state().mode, run: H.run.state, wave: H.director.state.wave, critters: H.critters.length, alive: H.critters.filter(c => c.alive).length, hp: H.health.state.hp, kills: H.score.state.kills, pts: H.score.state.points, over: document.querySelector('#over').classList.contains('show'), dummiesAlive: H.targets.filter(t => t.kind !== 'critter' && t.alive).length }; });

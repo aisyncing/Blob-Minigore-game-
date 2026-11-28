@@ -22,6 +22,7 @@ import { Target } from '../game/targets.js';
 import { Critter } from '../game/critters.js';
 import { createDirector } from '../game/waves.js';
 import { createHealth, createScore } from '../game/run.js';
+import { createTutorial } from '../game/tutorial.js';
 import { RULES } from '../game/rules.js';
 import { mouseAim } from '../input/process.js';
 import { createInput } from '../input/source.js';
@@ -115,6 +116,7 @@ const health = createHealth(), score = createScore(), director = createDirector(
 const hud = createHud(stage.camera);
 const bestKey = 'blobshooter.best';
 const loadBest = () => { try { return +localStorage.getItem(bestKey) || 0; } catch { return 0; } };
+const tutorial = createTutorial(), tutorialOff = /[?&]tutorial=off/.test(location.search);   // the first-run lesson (move, then shoot); ?tutorial=off skips it (automated tests)
 const run = { mode: /[?&]practice/.test(location.search) ? 'practice' : 'run', state: 'idle', overT: 0, best: loadBest(), time: 0 };   // mode: 'run' (survival) or 'practice' (just the dummies)
 const syncTargets = () => { targets.length = dummies.length; for (const c of critters) if (c.alive) targets.push(c); };
 function addCritter(c) { critters.push(c); views.set(c, new CritterView(arena.group, c)); return c; }
@@ -134,6 +136,7 @@ function resetPlayer() { player.x = SPAWN.x; player.y = SPAWN.y; player.v.x = pl
 function startRun() {
   clearCritters(); director.reset(); health.reset(); score.reset(); run.state = run.mode === 'run' ? 'playing' : 'idle'; run.overT = 0; run.time = 0; hud.reset();
   resetPlayer(); pauseT = 0;
+  tutorial.cancel(); if (run.mode === 'run' && !tutorialOff) tutorial.begin();      // a run that is still in the lesson starts it over; a finished lesson stays finished
   setDummies(run.mode === 'practice'); hud.hideOver(); heroes[selected].root.visible = true;
   $('#bPractice').textContent = run.mode === 'run' ? 'Practice range' : 'Back to survival';
   document.body.classList.toggle('practice', run.mode === 'practice');
@@ -247,7 +250,7 @@ function simStep(h) {
   prevFire = snap.fire;
   const reloadKey = input.keys.has('KeyR') || !!snap.buttons[2]?.pressed;
   for (const e of gun.update(h, { fire: snap.fire, reload: reloadKey })) {
-    if (e.type === 'shot') shoot(e.barrel, e.ammoLeft);
+    if (e.type === 'shot') { shoot(e.barrel, e.ammoLeft); tutorial.onShot(); }
     else if (e.type === 'reloadStart') audio.sfx.open();
     else if (e.type === 'reloadDone') haptics.reload('grab');                     // a tiny tick: the gun is ready
   }
@@ -257,7 +260,7 @@ function simStep(h) {
     health.update(h); score.update(h);
     const ctx = { player: { x: player.x, y: player.y, r: rad }, world: arena.world, others: critters };
     for (const c of critters) if (c.step(h, ctx) === 'attack' && run.state === 'playing') hurtPlayer(c);
-    if (run.state === 'playing') {
+    if (run.state === 'playing' && !tutorial.active) {                          // wave 1 waits for the lesson
       const live = critters.reduce((n, c) => n + (c.state === 'dead' ? 0 : 1), 0);
       for (const e of director.step(h, live)) onWaveEvent(e);
     }
@@ -298,7 +301,7 @@ function setMode(m) {
   arena.setVisible(m === 'play'); turntable.setVisible(m === 'compare'); shotViz.setVisible(m === 'play');
   heroes.forEach((h, k) => { h.setVisible(m === 'compare' || k === selected); h.reloadPrev = -1; });
   if (m === 'play') { resetPlayer(); turntable.release(); startRun(); }
-  if (m === 'compare') { clearCritters(); run.state = 'idle'; hud.hideOver(); setDummies(true); }
+  if (m === 'compare') { tutorial.cancel(); clearCritters(); run.state = 'idle'; hud.hideOver(); setDummies(true); }
   document.body.classList.toggle('in-run', m === 'play');
   if (m === 'compare') $('#panel').classList.add('collapsed');            // the tuning panel only opens when asked for
   $('#bPlayNow').style.display = m === 'compare' ? 'block' : 'none'; hud.setVisible(m === 'play');
@@ -356,11 +359,12 @@ let last = performance.now(), acc = 0, clock = 0;
 function frame(now) {
   const raw = Math.max(0, now - last); last = now; if (raw > 0) { ft.push(raw); if (ft.length > 120) ft.shift(); }
   const realDt = Math.min(0.1, raw / 1000);
-  let dt = realDt;
+  let dt = realDt * tutorial.timeScale;                                          // the lesson slows the game, never the input or the page
   if (pauseT > 0) { pauseT -= realDt; dt = 0; }                                    // hit pause: freeze the world for a few frames
   clock += dt; acc += dt;
   if (input.mouse.inside) { const w = groundPoint(lastClient.x, lastClient.y); if (w) { input.mouse.x = w.x; input.mouse.y = w.y; } }
   input.sample(now); menuStep();
+  if (mode === 'play' && run.mode === 'run' && run.state === 'playing') tutorial.update(realDt, { moveMag: snap.move.mag, gunReady: !gun.reloading && gun.state.ammo > 0 });
   steps = 0; while (acc >= STEP) { simStep(STEP); acc -= STEP; steps++; }
   haptics.update({ mode, reloading: gun.reloading, ammo: gun.state.ammo, capacity: P.capacity });      // adaptive trigger feel follows the gun
   camera.decay(realDt);
@@ -386,4 +390,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // hooks for automated tests (harmless in play)
-window.__hero = { updateHud: () => hud.update({ inRun: run.mode === 'run', playing: run.state === 'playing', health, score, director, critters, player }), run, health, score, director, critters, startRun, resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, haptics, updatePelletVisuals: () => shotViz.updatePellets(pellets.pellets), state: () => ({ mode, selected }), steps: () => steps };
+window.__hero = { tutorial, updateHud: () => hud.update({ inRun: run.mode === 'run', playing: run.state === 'playing', health, score, director, critters, player }), run, health, score, director, critters, startRun, resetRange, menuStep, player, heroes, input, snap, arena, stage, tuning, P, setMode, choose, simStep, gun, pellets, targets, views, stats, shoot, fx, audio, haptics, updatePelletVisuals: () => shotViz.updatePellets(pellets.pellets), state: () => ({ mode, selected }), steps: () => steps };

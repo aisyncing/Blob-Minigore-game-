@@ -26,7 +26,7 @@ const page = await (await browser.newContext({ viewport: { width: 1280, height: 
 const errors = []; page.on('pageerror', e => errors.push(String(e)));
 await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
 await page.addInitScript(DETERMINISM); await page.addInitScript(PAD_SHIM);
-await page.goto(pathToFileURL(resolve('dist/hero.html')).href);
+await page.goto(pathToFileURL(resolve('dist/hero.html')).href + '?tutorial=off');
 await page.waitForFunction(() => window.__hero && window.__step);
 // Drawing every one of ~2000 frames on a software GPU takes minutes and never feeds back into the game, so between checkpoints a frame
 // only does what render() does besides drawing (refresh world matrices). Each checkpoint below draws for real.
